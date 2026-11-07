@@ -261,14 +261,82 @@ From an allowed GitHub account, open an Issue or post a comment containing `@<ag
 
 ## Upgrade
 
-1. Wait until no Executor is in the middle of a turn.
-2. Back up `<stateDir>/orchestrator.sqlite`.
-3. Run `git pull && pnpm install && pnpm build`.
-4. Run `scripts/dsh-superagent restart` and inspect its status.
+The checklist below stops the service, backs up the database, builds the new version and verifies it. It assumes the `superagent` profile and `http://127.0.0.1:3082`; for others, pass `--profile` and `--url` to the script and replace the URL in the requests below. Keep the values of `stateDir`, `old` and `backup` for the rollback steps.
 
-A restart ends running Assignments and starts replacements with recovery notes. Team text and overridden prompt parts are retained; parts without overrides follow the new defaults. Review parts marked **Default updated** after upgrading.
+### Upgrade checklist
 
-A database migrated by a newer version cannot be opened by an older one. Rollback therefore requires the pre-upgrade backup. After upgrading DeepSeek Harness itself, restart the running instance so the panel loads matching artifacts.
+**Before the upgrade**
+
+1. Note the current process and fix existing problems first; otherwise a later failure cannot be attributed to the upgrade:
+   ```sh
+   scripts/dsh-superagent status
+   stateDir=$(curl -s -H 'x-orchestrator-request: 1' http://127.0.0.1:3082/orchestrator/api/state | jq -r '.setup.machine.stateDir')
+   ```
+   `status` must exit 0 and print exactly one id under `pids`; note it as `oldpid`. Exit 1 means that the service does not run, runs twice, does not answer or its runtime reports an error; exit 2 or 3 means that a part or setup already fails, which a restart does not fix. Handle any of these as in [Troubleshooting](#troubleshooting) first. The second command stores the state directory in `stateDir`.
+2. Wait until no Executor runs, because the upgrade stops the service and the Assignments then start again with recovery notes:
+   ```sh
+   curl -s -H 'x-orchestrator-request: 1' http://127.0.0.1:3082/orchestrator/api/state | jq .load
+   ```
+   `running` must be `0`. Tickets still queued wait in the database.
+3. Record the commit to return to if the new version fails:
+   ```sh
+   old=$(git rev-parse HEAD)
+   ```
+4. Stop the service, so no Ticket writes while the database is copied:
+   ```sh
+   scripts/dsh-superagent stop
+   ```
+   It exits 0. `status` then prints no `pids` and `manually_stopped: true` (it exits 1 because the service is stopped), which also keeps the hourly check from restarting the service during the upgrade. If `stop` exits 1, for example with `Graceful stop timed out; no forced kill was sent. Check status.`, the process may still run: do not copy the database; wait for the running Assignment, check `status`, and stop again.
+5. Back up the database; rollback needs this copy, because a newer version migrates the schema and an older one cannot open it:
+   ```sh
+   backup=~/dsh-superagent-backup-$(date +%Y%m%d-%H%M%S)
+   mkdir -p "$backup"
+   cp -a "$stateDir/orchestrator.sqlite" "$backup/"
+   ```
+   The database holds settings, prompts, Tickets, Threads and Assignments. `worker-bin` and `worker-gitconfig` are written on every start and need no backup. Copy `cases.jsonl` or `work` as well only if you need those records and Ticket checkouts; the upgrade does not change them.
+
+**Build and verify**
+
+6. Build the new version:
+   ```sh
+   git pull && pnpm install && pnpm build
+   ```
+   If the build fails, the database is still untouched: fix the cause and repeat, or return the checkout to `$old` and build that.
+7. Start the new version:
+   ```sh
+   scripts/dsh-superagent start
+   ```
+   It prints `Log: <path>` and exits 0 when the runtime answers. Exit 1 means that no working service answered: it did not come up, runs twice, or its runtime reports an error; the command's own message or the log says why. Fix the cause and run `start` again. Exit 2 or 3 means that a part (`errors`) or setup (`setup`) fails, which a restart does not fix; correct that, or roll back as below.
+8. Confirm that the new build, not just a runtime, loaded; [Restart and confirm the new version](#restart-and-confirm-the-new-version) explains why exit 0 alone does not prove it:
+   - `status` lists one pid, and it is not `oldpid`.
+   - The `Log:` path is a new `dsh-superagent-<profile>-<date>-<time>-<pid>.log`, whose name time is after the build.
+   - Reloading the panel at the URL printed in that log shows the expected change. An open tab keeps the page it loaded.
+9. Check the new service in `status` and the log:
+   - `scripts/dsh-superagent status` exits 0, `health.runtime` is `ready`, `errors` is empty, `setup` is `null`, and `manually_stopped` is `false`. `feishu` is `null`, or names the problem that leaves Feishu off while the service runs.
+   - Under `health`, `starting` is normal while a part starts or recovers; each `error` entry appears under `errors` with its `detail` and makes `status` exit 2. Once the sources start, `health.github` is `ready`; with Feishu, `health.feishu` is `ready` when it listens, `health.history` is `ready` or `starting` while it recovers, and `sync:<source id>` is `ready` where a policy sync is configured.
+   - `GET state` reports `load.running` as Executors resume, and `paused: false` unless processing was paused before the upgrade:
+     ```sh
+     curl -s -H 'x-orchestrator-request: 1' http://127.0.0.1:3082/orchestrator/api/state | jq '{load, paused}'
+     ```
+   - If an entry is not as above, read the newest `.artifacts/dsh-superagent-<profile>-*.log` and the entry's `detail`; the health entries are listed under [Management API](#management-api). The log holds the process's startup output, including the URL, and the errors it printed; the newest 20 log files are kept.
+
+**If the new version fails**
+
+10. Roll back the database and the checkout. If the upgrade also changed DeepSeek Harness, reinstall the version you used before, as in [Install](#install), first.
+    ```sh
+    scripts/dsh-superagent stop
+    git checkout "$old"
+    pnpm install && pnpm build
+    cp "$backup/orchestrator.sqlite" "$stateDir/orchestrator.sqlite"
+    rm -f "$stateDir/orchestrator.sqlite-wal" "$stateDir/orchestrator.sqlite-shm"
+    scripts/dsh-superagent start
+    ```
+    The service was stopped before the backup, so the restored database holds every write made before the upgrade; the newer version's migration cannot be undone without it. Removing the `-wal` and `-shm` files of the failed start keeps SQLite from applying them to the restored database. The checkout is then at `$old` with a detached HEAD; run `git switch main`, or your branch, before the next upgrade.
+11. Check the rollback like step 9: `status` exits 0 with one pid, `health.runtime` is `ready`, and `errors` is empty.
+
+An upgrade stops the service, ending running Assignments; after the new version starts, they run again with recovery notes. Team text and overridden prompt parts are retained; parts without overrides follow the new defaults. Review parts marked **Default updated** after upgrading.
+
+After upgrading DeepSeek Harness itself, restart the running instance so the panel loads matching artifacts.
 
 ### Agent presets
 
