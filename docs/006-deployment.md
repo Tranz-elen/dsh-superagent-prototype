@@ -130,6 +130,35 @@ Each profile stores logs and control files under `.artifacts/`:
 
 Open the URL printed in the log, then choose **Superagent** in the sidebar.
 
+### Restart and confirm the new version
+
+A running service keeps the code and machine configuration it loaded. Restart it after changing code, after changing `cordis.patch.yml` (the panel port or `stateDir`, for example), or after upgrading DeepSeek Harness. Settings saved in the panel do not need this script: an account change or **Check again** restarts the plugin inside the running process, after which the page reconnects.
+
+`restart` is a `stop` followed by a `start`:
+
+1. It sends SIGINT to the service process, letting a running Executor finish its current step, and waits up to `--stop-timeout` seconds, five minutes by default, for the process to end. It never force-kills or touches other tmux sessions. If two processes serve the profile, it refuses and changes nothing. If the wait ends first, it prints `Graceful stop timed out; no forced kill was sent. Check status.` and exits 1 without starting anything.
+2. It starts `dsh --profile <profile> --no-open` in tmux, writes a new log file and records the new process id in `control/profiles/<profile>/service.pid`. Like `start`, it refuses a duplicate process or a URL that another instance already answers on.
+3. It waits up to `--timeout` seconds, one minute by default, for that process to answer with a runtime that is `ready` or `paused`, then prints the `status` report and exits with its code.
+
+A restart ends Assignments still running when it begins; they start again with recovery notes, as described under [Upgrade](#upgrade).
+
+`restart` exits with the same four codes as `status`:
+
+- 0: the service answers and runs normally.
+- 1: it does not run, runs twice, does not answer, or its runtime reports an error; the restart did not produce a working service. Read the newest log.
+- 2: it runs, but a part other than the runtime, such as a Source, reports an error; a restart does not fix it, and `errors` names it.
+- 3: it runs and waits for setup; a restart does not fix it, and `setup` says what is missing.
+
+Exit 0 says that a runtime is ready, which the previous version also reported, so it does not prove the new build loaded. To confirm that:
+
+- `status` lists exactly one pid, and it is not the pid the service had before the restart.
+- The `Log:` line the restart printed points to a new `dsh-superagent-<profile>-<date>-<time>-<pid>.log`, whose name timestamp is after the build, and whose first lines are that process's startup output.
+- Reloading the panel at the URL the log prints shows the expected change. An open tab keeps the page it loaded; reload it rather than trust what it showed before.
+
+If the new build fails to come up, the restart exits 1, and the newest log or the command's own message names the cause; fix it and run `restart` again. After changing the panel port, give `status` and `restart` the new URL with `--url` or `DSH_SUPERAGENT_URL`; otherwise they check the old port and the restart exits 1.
+
+Closing the panel page does not stop the service. The service is the process in tmux, and the page is one client of its local API. Closing the tab, losing the connection or seeing an error page does not stop polling, Tickets or replies, and reloading the page neither starts nor restarts the service. Use `status` to decide whether it runs: during a restart the page can say dsh-superagent is not answering while the new process is still starting, and a page that loads does not prove that a restart happened.
+
 ### Hourly check
 
 Create the hourly check in the DeepSeek Harness profile you normally use, not in `superagent`. It must keep running when the agent service is down. Ask an agent in that profile to create an hourly schedule using this prompt, with the checkout path filled in:
