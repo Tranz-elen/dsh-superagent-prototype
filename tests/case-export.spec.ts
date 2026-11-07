@@ -73,7 +73,6 @@ it('catches up on a ticket that ended before startup', async () => {
   expect(exporter.size).toBe(1)
 })
 
-<<<<<<< HEAD
 it('exports a Ticket the Engine ended, and a later exporter does not write it again', async () => {
   const requestAt = '2026-11-07T10:24:11.000Z'
   const request: Trigger = { id: 'trigger-lifecycle', source: 'github', threads: [{ source: 'github', id: '42' }],
@@ -122,8 +121,8 @@ it('exports a Ticket the Engine ended, and a later exporter does not write it ag
     request: request.text,
     requester: 'alice',
     addressed: 'mention',
-    // The fake executor gives the ticket no work directory, so its changed files stay unknown.
-    intent: 'feature',
+    // The fake executor gives the ticket no work directory, so its changed files stay unknown; the title's `test:` prefix decides.
+    intent: 'test',
     areas: [],
     files: [],
     decision: { kind: 'accept', reasons: ['explicitRouted'], strength: 'explicit' },
