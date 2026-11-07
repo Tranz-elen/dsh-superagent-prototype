@@ -24,7 +24,7 @@ command -v lark-cli
 grep -l -E 'id: dsh-superagent\b' "${DSH_HOME:-$HOME/.dsh}"/profiles/*/cordis.patch.yml 2>/dev/null
 ```
 
-- **Prerequisites:** Node.js 22.19+ or 24+, pnpm, git 2.32+, tmux, Python 3.8+, GitHub CLI 2.48+, and DSH within the `engines.dsh` range of `package.json`. A missing one becomes an item of the plan, not a question. DSH also needs a model provider; if the operator has never run DSH with a model, configuring one is an operator step.
+- **Prerequisites:** Node.js 22.19+ or 24+, pnpm, git 2.32+, tmux, Python 3.8+, GitHub CLI 2.48+, and DSH within the `engines.dsh` range of `package.json`. A missing one becomes an item of the plan, not a question. If a probe command fails, see [Troubleshooting](#troubleshooting). DSH also needs a model provider; if the operator has never run DSH with a model, configuring one is an operator step.
 - **Operator login:** the `gh api user` result is the operator's own GitHub login, used as the recommendation in question 5.
 - **Existing profile:** a profile with a `dsh-superagent` entry is an earlier setup: ask whether to continue it, keep its configuration, and read Upgrade in `docs/006-deployment.md`.
 
@@ -77,3 +77,127 @@ Send one message, under 300 words: what will be installed, the accounts and CLIs
 - How to try it: from an account on the allowed list, comment `@<agent login> <request>` on an issue in the repository. A Ticket appears on the overview within about a minute.
 - Three rules for the operator, from the Responsibility section of `docs/000-philosophy.md`: start narrow, tune for less noise, own what the agent says.
 - Where to read more: the numbered documents in `docs/`, in order.
+
+## Troubleshooting
+
+If a command fails, match its symptom below, run the check, then the fix. After a fix, run the probe again.
+
+### `gh` is not installed
+
+**Symptom:** the probe prints `bash: gh: command not found`, and `gh api user` fails the same way.
+
+**Check:**
+
+```sh
+command -v gh
+gh --version | head -1
+```
+
+**Fix:** install GitHub CLI 2.48 or later. On Debian, Ubuntu and WSL:
+
+```sh
+(type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+  && sudo mkdir -p -m 755 /etc/apt/keyrings \
+  && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null \
+  && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null \
+  && sudo apt update \
+  && sudo apt install gh -y
+```
+
+On macOS, run `brew install gh`. `gh --version` must then report 2.48 or later; if it reports an older version, upgrade with `brew upgrade gh` or reinstall from the repository above.
+
+### `gh` is not signed in
+
+**Symptom:** `gh api user --jq .login` prints:
+
+```text
+To get started with GitHub CLI, please run:  gh auth login
+Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.
+```
+
+and `gh auth status` prints `You are not logged into any GitHub hosts. To log in, run: gh auth login`.
+
+**Check:**
+
+```sh
+gh auth status
+```
+
+**Fix:** sign in as the operator, in their own terminal:
+
+```sh
+gh auth login
+gh api user --jq .login
+```
+
+Choose GitHub.com and HTTPS. `gh auth login` requests the `repo`, `read:org` and `gist` scopes by default; keep them. The last command prints the operator's login.
+
+### `tmux` is not installed
+
+**Symptom:** the probe prints `bash: tmux: command not found`; `scripts/dsh-superagent start` exits 1 with `Both dsh and tmux must be on PATH.`
+
+**Check:**
+
+```sh
+command -v tmux && tmux -V
+```
+
+**Fix:** on Debian, Ubuntu and WSL:
+
+```sh
+sudo apt update && sudo apt install -y tmux
+```
+
+On macOS, run `brew install tmux`. Then `tmux -V` prints its version.
+
+### `dsh` is not on `PATH` on WSL
+
+**Symptom:** `dsh --version` prints `bash: dsh: command not found` after the install, and `command -v dsh` prints nothing. On WSL this usually means DSH was installed with the Windows Node.js, or the Linux npm global `bin` directory is not on `PATH`.
+
+**Check:**
+
+```sh
+command -v dsh
+npm prefix -g
+ls "$(npm prefix -g)/bin/dsh"
+```
+
+**Fix:** install DSH inside WSL, then add the Linux npm global `bin` directory to `PATH`:
+
+```sh
+npm install -g @deepseek-ai/dsh@0.2.1-rc.3
+echo 'export PATH="$(npm prefix -g)/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+hash -r
+dsh --version
+```
+
+The last command must report a version within the `engines.dsh` range in `package.json`; if it reports an older version, install the pinned version above. If the install reports `EACCES`, set npm's user prefix with `npm config set prefix ~/.npm-global`, run the install again, and add `~/.npm-global/bin` to `PATH` instead of the `npm prefix -g` line.
+
+### The GitHub token lacks permissions
+
+**Symptom:** the probe passes, but the first repository operation through `gh` fails:
+
+- `gh: Resource not accessible by personal access token (HTTP 403)` from `gh api`;
+- `gh: Not Found (HTTP 404)` for a repository that exists: a classic token without the `repo` scope cannot see a private repository;
+- `gh: Bad credentials (HTTP 401)`: the token has expired or was revoked;
+- a push is refused with `remote: Permission to <owner>/<repo>.git denied to <login>.`
+
+**Check:** run these from the checkout of the repository from question 2, or replace `<owner>/<repo>` with its answer:
+
+```sh
+gh auth status
+gh repo view <owner>/<repo> --json viewerPermission --jq .viewerPermission
+```
+
+`gh auth status` lists the token scopes. The second command prints `ADMIN`, `MAINTAIN`, `WRITE` or `READ` when the token can see the repository; otherwise it fails with `Could not resolve to a Repository`.
+
+**Fix:** sign in again with the `repo` scope:
+
+```sh
+gh auth refresh -s repo
+gh auth status
+```
+
+For the agent CLI in Execute, run the same two commands through its wrapper, for example `gh-agent auth login` and `gh-agent auth status`. Prefer the token `gh auth login` creates, which has the scopes the agent needs; a fine-grained token must instead grant at least **Contents**, **Issues** and **Pull requests** read and write on the repository.
