@@ -16,6 +16,8 @@ Setup has many steps, so an agent does it with you. Ask your coding agent:
 
 It asks one short question at a time, shows the full plan once, and then installs and configures everything. [SETUP.md](SETUP.md) is what it follows.
 
+Once dsh-superagent is running, you can submit a request without GitHub through the local management API: `POST /orchestrator/api/requests` with `{"text": "<request>"}` (see [Management API](docs/006-deployment.md#management-api)).
+
 ## Your first Ticket
 
 One request, from a GitHub Issue to a pull request, once [Setup](#setup) has finished. The panel is the **Superagent** entry in the DeepSeek Harness Web sidebar; [005 Panel](docs/005-panel.md) describes its pages.
