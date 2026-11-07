@@ -17,6 +17,14 @@ import type { Localized, SourceKind } from './kind.ts'
 import { z } from 'zod'
 
 export { commentTrigger, type GithubComment } from './github-trigger.ts'
+/**
+ * How far before a round a notification read position stops. GitHub can make a notification or comment visible
+ * only after the round that would have read it, so a position at the round start skips it forever; the overlap
+ * re-reads the tail and Trigger IDs deduplicate.
+ */
+const NOTIFICATION_LAG_MS = 300_000
+/** The read position for notifications and comments read by this round, five minutes behind it. */
+const notificationCursor = (started: string): string => cursorAt(new Date(Date.parse(started) - NOTIFICATION_LAG_MS).toISOString())
 /** A notification of the agent account; `subject.url` is the API address of its Issue or PR. */
 const NotificationSchema = z.looseObject({
   repository: z.looseObject({ full_name: z.string() }), subject: z.looseObject({ url: z.string().nullish() }),
@@ -338,7 +346,7 @@ async function pollNotifications(ctx: SourceContext, round: Round): Promise<{ co
       delete retries[number]
     }
   }
-  ctx.atomic(() => { state.set(KV.github.since, cursorAt(round.started)); state.set(KV.github.retries, retries) })
+  ctx.atomic(() => { state.set(KV.github.since, notificationCursor(round.started)); state.set(KV.github.retries, retries) })
   return { count: notifications.length, interval }
 }
 async function readNotified(ctx: SourceContext, round: Round, number: number, item: Retry): Promise<void> {
@@ -369,7 +377,7 @@ async function readNotified(ctx: SourceContext, round: Round, number: number, it
     await intakeComments(ctx, { number, isPr: true, url: pr.html_url, prAuthor: pr.user.login }, since, round)
     if (pr.title) nameThread(ctx, number, pr.title)
   }
-  ctx.state.set(KV.github.cursor(number), cursorAt(round.started))
+  ctx.state.set(KV.github.cursor(number), notificationCursor(round.started))
   ctx.threads.patch(`github:${number}`, { pollError: undefined })
 }
 /** Reads and observes a PR at most once per polling round. */

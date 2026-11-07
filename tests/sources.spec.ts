@@ -81,7 +81,7 @@ function github(h: ReturnType<typeof host>, routes: Record<string, unknown>): st
     const path = reads.at(-1)!.split('?')[0]!
     const list = /\/(comments|reviews|statuses)$/.test(path) ? [] : refused(404, 'Not Found')
     const route = routes[path] ?? (path.endsWith('/check-runs') ? { check_runs: [] } : list)
-    const value: unknown = typeof route === 'function' ? (route as () => unknown)() : route
+    const value: unknown = typeof route === 'function' ? (route as (url: string) => unknown)(reads.at(-1)!) : route
     if (value instanceof Error) throw value
     if (args.includes('--include')) return `HTTP/2.0 200 OK\r\nX-Poll-Interval: 60\r\n\r\n${JSON.stringify(value)}`
     return JSON.stringify(args.includes('--slurp') ? [value] : value)
@@ -597,6 +597,32 @@ describe('github source', () => {
     expect(h.receive.mock.calls.map(([trigger]) => trigger.meta.number)).toEqual([13, 12])
     expect(h.store.get('github-retry')).toEqual({})
     expect(h.store.threads.get('github:12')!.meta).not.toHaveProperty('pollError')
+    h.store.close()
+  })
+  it('re-reads a notification GitHub exposes only after the round that started after it', async () => {
+    const h = host()
+    const now = Date.now()
+    const since = new Date(now - 120_000).toISOString()
+    h.store.set('github-since', since)
+    const late = { ...notification(7), updated_at: new Date(now - 30_000).toISOString() }
+    let exposed = false
+    github(h, {
+      // GitHub filters by `since` itself; the first round does not see the notification yet.
+      notifications: (url: string) => {
+        if (!exposed) return []
+        const asked = Date.parse(new URL(url, 'http://localhost').searchParams.get('since') ?? since)
+        return [late].filter(item => Date.parse(item.updated_at) >= asked)
+      },
+      'issues/7': issue(7, { created_at: '2026-08-01T00:00:00Z' }),
+      'issues/7/comments': [{ id: 1, body: '@agent-bot take this', user: { login: 'alice', type: 'User' },
+        html_url: 'https://github.com/acme/widgets/issues/7#issuecomment-1',
+        created_at: late.updated_at, updated_at: late.updated_at }],
+    })
+    await pollRound(h)
+    // A cursor at five seconds before the first round would now be past the late notification and skip it forever.
+    exposed = true
+    await pollRound(h)
+    expect(h.receive).toHaveBeenCalledWith(expect.objectContaining({ meta: expect.objectContaining({ number: 7 }) }))
     h.store.close()
   })
   it('drops an Issue GitHub reports as deleted after recording it, and reads one it answers 404 for again', async () => {

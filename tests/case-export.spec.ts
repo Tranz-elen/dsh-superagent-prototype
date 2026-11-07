@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { Store } from '../src/app/store.ts'
-import { CaseExport, type CaseRecord } from '../src/app/cases.ts'
+import { CaseExport, intentOf, type CaseRecord } from '../src/app/cases.ts'
 import { Engine, type Assessor, type Candidate, type Decision, type Executor, type Outbox, type Policy, type Ticket, type Trigger }
   from '../src/core/index.ts'
 
@@ -121,8 +121,8 @@ it('exports a Ticket the Engine ended, and a later exporter does not write it ag
     request: request.text,
     requester: 'alice',
     addressed: 'mention',
-    // The fake executor gives the ticket no work directory, so its changed files stay unknown.
-    intent: 'feature',
+    // The fake executor gives the ticket no work directory, so its changed files stay unknown; the title's `test:` prefix decides.
+    intent: 'test',
     areas: [],
     files: [],
     decision: { kind: 'accept', reasons: ['explicitRouted'], strength: 'explicit' },
@@ -144,4 +144,15 @@ it('exports a Ticket the Engine ended, and a later exporter does not write it ag
   await restarted.start()
   expect(readFileSync(restarted.file, 'utf8').trim().split('\n')).toHaveLength(1)
   expect(restarted.size).toBe(1)
+})
+
+it('lets a conventional title prefix decide the intent before the subject does', () => {
+  // The subject mentions 文档, but the work is a guard bugfix; the prefix names the work.
+  expect(intentOf('bugfix: 文档类任务不应安装工具', '', [])).toBe('bugfix')
+  expect(intentOf('docs: SETUP 增加排错章节', '', [])).toBe('docs')
+  expect(intentOf('test: page() 的边界用例', '', [])).toBe('test')
+  expect(intentOf('refactor: 拆 overview() 的健康汇总', '', [])).toBe('refactor')
+  expect(intentOf('ci: 加最小 GitHub Actions', '', [])).toBe('ci')
+  // Without a prefix, the old heuristics still classify a typo as docs.
+  expect(intentOf('修正 README 第 1 节的错别字', '', [])).toBe('docs')
 })
