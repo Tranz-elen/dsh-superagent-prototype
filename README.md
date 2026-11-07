@@ -48,6 +48,8 @@ Read the numbered documents in order; each builds only on the ones before it.
 
 `pnpm check` runs the typecheck, the tests and the build.
 
+`pnpm test:coverage` runs the tests with V8 coverage and fails when line, statement, function or branch coverage drops below 80%. The report goes to `coverage/`. Coverage counts every file under `src/`, including the client (`src/client`), because the panel tests run in jsdom in the same suite; tests and build output are excluded. On the full suite the baseline is 97.45% lines, 94.42% statements, 93.6% functions and 86.36% branches, so the 80% gate holds from the start.
+
 ## License
 
 [MIT](LICENSE)
