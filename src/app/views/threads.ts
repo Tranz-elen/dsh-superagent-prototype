@@ -2,8 +2,9 @@
 import { threadKey, type Thread, type Ticket, type Trigger } from '../../core/index.ts'
 import type { ThreadFilter } from '../api.ts'
 import type { TextCache } from '../cache.ts'
-import { awaitingEval, channelLink, dayAgo, decisionView, newestFirst, page, snapshot, threadSummary, threadTitle, ticketLine,
+import { awaitingEval, channelLink, dayAgo, decisionView, newestFirst, snapshot, threadSummary, threadTitle, ticketLine,
   ticketSummary, triggerView, type ViewHost } from './records.ts'
+import { page } from './page.ts'
 import { attribute } from './text.ts'
 
 export function threadList(host: ViewHost, filter: ThreadFilter, offset: number, limit: number) {
