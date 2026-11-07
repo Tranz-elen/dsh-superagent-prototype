@@ -1,0 +1,198 @@
+/**
+ * Phase 0 — corpus report for exported superagent cases.
+ *
+ * Reads cases.jsonl (see export-cases.mjs), digests each worker session trace,
+ * counts repetition, and decides whether the corpus is large enough to distill
+ * rules from. Writes report.md next to the corpus.
+ *
+ * Usage: node analyze-cases.mjs [--cases cases.jsonl] [--out report.md]
+ */
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { zstdDecompressSync } from 'node:zlib'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+const args = process.argv.slice(2)
+const arg = (name, fallback) => {
+  const i = args.indexOf(`--${name}`)
+  return i >= 0 && args[i + 1] ? args[i + 1] : fallback
+}
+const STATE = process.env.DSH_SUPERAGENT_STATE_DIR ?? join(homedir(), '.dsh', 'state', 'superagent')
+const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+const CASES = arg('cases', join(STATE, 'cases.jsonl'))
+const OUT = arg('out', 'report.md')
+const SESSIONS = arg('sessions', join(DSH_HOME, 'sessions'))
+
+function intentOf(title, text, files) {
+  // A conventional prefix names the work; the rest of the title names its subject.
+  const prefix = /^\s*(bugfix|hotfix|fix|docs?|documentation|tests?|refactor|perf|chore|ci|build|feat|feature)\b\s*[:\-—]/i.exec(title)?.[1]?.toLowerCase()
+  if (prefix) {
+    if (['bugfix', 'hotfix', 'fix'].includes(prefix)) return 'bugfix'
+    if (['doc', 'docs', 'documentation'].includes(prefix)) return 'docs'
+    if (['test', 'tests'].includes(prefix)) return 'test'
+    if (['refactor', 'perf', 'chore'].includes(prefix)) return 'refactor'
+    if (['ci', 'build'].includes(prefix)) return 'ci'
+    if (['feat', 'feature'].includes(prefix)) return 'feature'
+  }
+  const s = `${title}\n${text}`
+  if (/文档|README|docs|说明/i.test(s)) return 'docs'
+  if (/重构|refactor|rename|move/i.test(s)) return 'refactor'
+  if (/修复|bug|fix|错误|报错/i.test(s)) return 'bugfix'
+  if (/\.github\/workflows|CI|workflow/i.test(s)) return 'ci'
+  if (files.some(f => /\.(test|spec)\./.test(f))) return 'test'
+  if (files.length > 0 && files.every(f => /\.(md|mdx|txt)$/.test(f))) return 'docs'
+  return 'feature'
+}
+
+const cases = readFileSync(CASES, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
+
+/** Resolves a worker transcript: an explicit path from the offline exporter, or the id the in-process exporter records. */
+function sessionPath(c) {
+  if (c.session) return c.session
+  if (!c.sessionId) return undefined
+  try {
+    for (const dir of readdirSync(join(SESSIONS))) {
+      const candidate = join(SESSIONS, dir, c.sessionId)
+      if (!existsSync(candidate)) continue
+      const file = readdirSync(candidate).find(name => name.startsWith('session.') && name.endsWith('.zstd'))
+      if (file) return join(candidate, file)
+    }
+  } catch { /* no session store */ }
+  return undefined
+}
+
+const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
+/**
+ * Reads a session transcript. The store appends one zstd frame per event batch, so a
+ * whole-file decompress returns only the first frame; decompress from every frame
+ * magic and keep the well-formed, non-duplicate JSON lines.
+ */
+function readSession(path) {
+  if (!path) return []
+  let buf
+  try { buf = readFileSync(path) } catch { return [] }
+  const events = [], seen = new Set()
+  for (let i = 0; (i = buf.indexOf(MAGIC, i)) !== -1; i += 4) {
+    try {
+      const text = zstdDecompressSync(buf.subarray(i)).toString('utf8')
+      for (const line of text.split('\n')) {
+        if (!line.trim() || seen.has(line)) continue
+        seen.add(line)
+        try { events.push(JSON.parse(line)) } catch { /* not a JSON event */ }
+      }
+    } catch { /* false-positive magic */ }
+  }
+  return events.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+}
+
+const textOf = message => (message?.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
+
+function digest(events) {
+  const steps = events.filter(e => e.type === 'step/start').length
+  const calls = new Map()
+  const results = new Map()
+  for (const e of events) {
+    if (e.type === 'tool/call') {
+      let parsed = {}
+      try { parsed = JSON.parse(e.data.arguments ?? '{}') } catch { /* keep {} */ }
+      calls.set(e.data.callId, { name: e.data.name, args: parsed })
+    } else if (e.type === 'tool/result') {
+      results.set(e.data.toolCallId ?? e.data.message?.toolCallId, textOf(e.data.message))
+    }
+  }
+  const tools = {}
+  const bash = []
+  const failures = []
+  const edits = new Set()
+  const reads = new Set()
+  for (const [callId, call] of calls) {
+    tools[call.name] = (tools[call.name] ?? 0) + 1
+    const text = results.get(callId) ?? ''
+    const exit = /\[exit code: (\d+)\]/.exec(text)
+    const failed = (exit && Number(exit[1]) !== 0) || /^(Error|error):/.test(text.trim())
+    if (call.name === 'bash') bash.push({ command: (call.args.command ?? '').trim().split('\n')[0], exit: exit ? Number(exit[1]) : 0 })
+    if (call.name === 'write' || call.name === 'edit') edits.add(call.args.file_path)
+    if (call.name === 'read' || call.name === 'grep' || call.name === 'glob') reads.add(call.args.file_path ?? call.args.path ?? call.args.pattern)
+    if (failed) failures.push({ tool: call.name, detail: (exit ? `exit ${exit[1]}` : 'error') + ' :: ' + text.slice(0, 160).replace(/\s+/g, ' ') })
+  }
+  return { steps, tools, bash, edits: [...edits], reads: [...reads].filter(Boolean), failures }
+}
+
+for (const c of cases) { c.intent = intentOf(c.title, c.request ?? '', c.files ?? []); c.trace = digest(readSession(sessionPath(c))) }
+
+// ---------------------------------------------------------------- aggregation
+const count = (list, pick) => list.reduce((m, x) => (m[pick(x)] = (m[pick(x)] ?? 0) + 1, m), {})
+const signature = c => `${c.intent}|${c.outcome}`
+const bySignature = count(cases, signature)
+const repeatedSignatures = Object.entries(bySignature).filter(([, n]) => n >= 2)
+const allBash = cases.flatMap(c => c.trace.bash)
+const failedBash = allBash.filter(b => b.exit !== 0)
+const bashCount = count(allBash, b => b.command)
+const repeatedBash = Object.entries(bashCount).filter(([, n]) => n >= 2)
+const allFailures = cases.flatMap(c => c.trace.failures)
+const failureCount = count(allFailures, f => f.detail.slice(0, 80))
+const repeatedFailures = Object.entries(failureCount).filter(([, n]) => n >= 2)
+const reasonCount = count(cases.flatMap(c => c.decision?.reasons ?? []), r => r)
+const reportStates = count(cases.flatMap(c => c.reports), r => r.state)
+
+/** Minimum corpus for a first distillation pass: enough cases, repetition, and outcome spread. */
+const NEED = { cases: 20, perSignature: 3, repeatedFailure: 2, outcomes: 2 }
+const outcomeSpread = new Set(cases.map(c => c.outcome)).size
+const sufficient = cases.length >= NEED.cases && repeatedSignatures.some(([, n]) => n >= NEED.perSignature)
+  && repeatedFailures.length >= NEED.repeatedFailure && outcomeSpread >= NEED.outcomes
+
+const table = (rows, head) => ['| ' + head.join(' | ') + ' |', '|' + head.map(() => ' --- ').join('|') + '|',
+  ...rows.map(r => '| ' + r.join(' | ') + ' |')].join('\n')
+
+const lines = []
+lines.push('# Phase 0 — superagent case corpus report', '')
+lines.push(`- generated: ${new Date().toISOString()}`)
+lines.push(`- cases: **${cases.length}**`)
+lines.push(`- corpus: \`${CASES}\``, '')
+lines.push('## 1. Cases', '')
+lines.push(table(cases.map(c => [c.id.slice(0, 8), c.intent, c.areas.join(',') || '-', c.outcome, c.decision?.kind ?? '-',
+  String(c.cost.retries), String(c.cost.humanFollowUps), c.title]), ['id', 'intent', 'areas', 'outcome', 'decision', 'retries', 'human', 'title']), '')
+lines.push('## 2. Distribution', '')
+lines.push(`- outcomes: ${JSON.stringify(count(cases, c => c.outcome))}`)
+lines.push(`- intents: ${JSON.stringify(count(cases, c => c.intent))}`)
+lines.push(`- areas: ${JSON.stringify(count(cases, c => c.areas[0] ?? '(none)'))}`)
+lines.push(`- decision reasons: ${JSON.stringify(reasonCount)}`)
+lines.push(`- report states: ${JSON.stringify(reportStates)}`)
+lines.push(`- retries: ${cases.reduce((n, c) => n + c.cost.retries, 0)}, attention: ${cases.reduce((n, c) => n + c.cost.attention, 0)}`, '')
+lines.push('## 3. Repetition (the only thing rules can come from)', '')
+lines.push(`- signatures (intent|outcome) with n>=2: ${repeatedSignatures.length ? JSON.stringify(repeatedSignatures) : 'none'}`)
+lines.push(`- bash commands run more than once: ${repeatedBash.length ? JSON.stringify(repeatedBash) : 'none'}`)
+lines.push(`- failed commands seen more than once: ${repeatedFailures.length ? JSON.stringify(repeatedFailures) : 'none'}`)
+lines.push(`- outcome spread: ${outcomeSpread} kinds`, '')
+lines.push('### Trace digests', '')
+for (const c of cases) {
+  lines.push(`**${c.id.slice(0, 8)} — ${c.title}** (${c.outcome})`, '')
+  lines.push(`- steps ${c.trace.steps}, tools ${JSON.stringify(c.trace.tools)}`)
+  lines.push(`- bash ${c.trace.bash.length} (failed ${c.trace.bash.filter(b => b.exit !== 0).length})${c.trace.bash.length ? ': ' + c.trace.bash.slice(0, 6).map(b => '`' + b.command.slice(0, 60) + '`' + (b.exit ? ` [${b.exit}]` : '')).join(', ') : ''}`)
+  lines.push(`- edits ${c.trace.edits.join(', ') || '-'}`)
+  if (c.trace.failures.length) lines.push(`- failures: ${c.trace.failures.slice(0, 5).map(f => f.detail).join(' | ')}`)
+  lines.push('')
+}
+lines.push('## 3b. Decision-only records (no Ticket)', '')
+try {
+  const decisions = existsSync(arg('decisions', join(STATE, 'decisions.jsonl')))
+    ? readFileSync(arg('decisions', join(STATE, 'decisions.jsonl')), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+    : []
+  const byKind = decisions.reduce((m, d) => (m[d.kind] = (m[d.kind] ?? 0) + 1, m), {})
+  const byReason = decisions.reduce((m, d) => { for (const r of d.reasons) m[r] = (m[r] ?? 0) + 1; return m }, {})
+  lines.push(`- records: ${decisions.length}`)
+  lines.push(`- by kind: ${JSON.stringify(byKind)}`)
+  lines.push(`- by reason: ${JSON.stringify(byReason)}`)
+  for (const d of decisions.slice(0, 5)) lines.push(`- ${d.kind} | ${d.reasons.join(',')} | ${(d.threadTitle ?? d.thread)} | ${(d.trigger?.text ?? '').slice(0, 60).replace(/\n/g, ' ')}`)
+} catch { lines.push('- none') }
+lines.push('')
+lines.push('## 4. Data sufficiency', '')
+lines.push(`need: >=${NEED.cases} cases, >=${NEED.perSignature} per signature, >=${NEED.repeatedFailure} repeated failures, >=${NEED.outcomes} outcomes`)
+lines.push(`have: ${cases.length} cases, ${repeatedSignatures.filter(([, n]) => n >= NEED.perSignature).length} qualifying signatures, ${repeatedFailures.length} repeated failures, ${outcomeSpread} outcomes`)
+lines.push('')
+lines.push(`**verdict: ${sufficient ? 'enough for a first distillation pass' : 'NOT enough — do not distill rules yet'}**`)
+lines.push('')
+writeFileSync(OUT, lines.join('\n') + '\n')
+console.log(`wrote ${OUT}`)
+console.log(`cases=${cases.length} repeatedSignatures=${repeatedSignatures.length} repeatedFailures=${repeatedFailures.length} sufficient=${sufficient}`)
+for (const c of cases) console.log(`- ${c.id.slice(0, 8)} ${c.outcome} steps=${c.trace.steps} bash=${c.trace.bash.length} failedBash=${c.trace.bash.filter(b => b.exit !== 0).length} tools=${Object.keys(c.trace.tools).join(',')}`)
