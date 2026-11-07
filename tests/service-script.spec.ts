@@ -179,6 +179,41 @@ it('restarts the service, and a restart whose graceful stop timed out does not k
     .toMatchObject({ code: 1, stderr: expect.stringContaining('Graceful stop timed out') })
   expect(await status('superagent')).toMatchObject({ manually_stopped: false })
 }, 20_000)
+it('refuses to restart while two processes serve the profile, and starts nothing', async () => {
+  const first = sleeper(), second = sleeper()
+  processes(service(first), service(second))
+  expect(await run('restart', '--stop-timeout', '1'))
+    .toMatchObject({ code: 1, stderr: expect.stringContaining('Multiple dsh-superagent processes found; refusing to choose one.') })
+  // The refusal happens before either the stop marker or a new tmux session, so both processes stay.
+  expect(existsSync(join(root, 'tmux.log'))).toBe(false)
+  expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(false)
+  for (const pid of [first, second]) expect(() => process.kill(pid, 0)).not.toThrow()
+}, 20_000)
+it('exits 2 from a restart when a Source reports an error, which a restart does not fix', async () => {
+  const url = await answering({ health: { runtime: { state: 'ready', detail: '' }, github: { state: 'error', detail: 'bad token' } },
+    setup: {} })
+  const old = sleeper(), pid = sleeper()
+  processes(service(old))
+  writeFileSync(join(root, 'pane'), `${pid}\n`)
+  started(service(pid))
+  const restarted = await run('restart', '--url', url, '--timeout', '10', '--stop-timeout', '5')
+  expect(restarted.code).toBe(2)
+  expect(restarted.stdout).toContain('github reports an error, which a restart does not fix: bad token')
+  // A restart never records an intentional stop, so recovery stays on despite the lasting error.
+  expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(false)
+}, 20_000)
+it('exits 3 from a restart when the new service waits for setup, which a restart does not fix', async () => {
+  const url = await answering({ health: { runtime: { state: 'paused', detail: '' } },
+    setup: { problem: { code: 'repositoryUnset', detail: 'The GitHub Source names no repository.' }, feishuProblem: null } })
+  const old = sleeper(), pid = sleeper()
+  processes(service(old))
+  writeFileSync(join(root, 'pane'), `${pid}\n`)
+  started(service(pid))
+  const restarted = await run('restart', '--url', url, '--timeout', '10', '--stop-timeout', '5')
+  expect(restarted.code).toBe(3)
+  expect(restarted.stdout).toContain('waiting for setup: The GitHub Source names no repository.')
+  expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(false)
+}, 20_000)
 it('refuses a second control operation while one holds the profile\'s lock', async () => {
   mkdirSync(control('superagent'), { recursive: true })
   const held = join(root, 'held')
