@@ -1,6 +1,7 @@
 /** Overview view: active system problems, tickets awaiting human action, executor load, and 24-hour trigger flow. */
 import { reasonText, ticketStage, type Decision, type Thread } from '../../core/index.ts'
 import type { Health } from '../../sources/host.ts'
+import type { SourceRegistry } from '../../sources/registry.ts'
 import type { SetupProblem } from '../../setup.ts'
 import { anyoneAllowed } from '../../policy.ts'
 import type { Store } from '../store.ts'
@@ -31,6 +32,19 @@ export function evalsHealth(store: Store, now = Date.now()): Health {
   return { state: 'error', at: latest.at, detail: `${open.length} Eval(s) unavailable in the last hour without a later judgement; `
     + `the latest on ${latest.threadKey}: ${reasonText(latest.reason)}` }
 }
+/** Groups health entries by the Source instances that report them: the parts of each enabled, installed Source and the names all Sources own. */
+function healthBySource(instances: ReturnType<SourceRegistry['instances']>, sources: SourceRegistry, health: HealthMap) {
+  const running = instances.filter(instance => instance.enabled && instance.installed).map(instance => sourceHealth(sources, instance, health))
+  const owned = new Set(instances.flatMap(instance => sources.kind(instance.kind)?.health ?? []))
+  return { running, owned }
+}
+/** Assembles the `runtime-error` problems from error health entries that neither a Source nor a Policy sync owns. */
+function runtimeErrors(health: HealthMap, owned: Set<string>) {
+  // Unavailable Evals behind the `evals` health entry are listed individually as `eval-unavailable` problems.
+  return Object.entries(health)
+    .filter(([name, item]) => item.state === 'error' && !owned.has(name) && !name.startsWith('sync:') && name !== 'evals')
+    .map(([name, item]) => ({ kind: 'runtime-error' as const, name, detail: item.detail }))
+}
 /**
  * Builds the operator overview: active system problems, tickets awaiting human action, executor load, and 24-hour trigger flow.
  * @param setup - Setup problem to surface first (where setup stopped, or a Source paused by setup).
@@ -41,10 +55,7 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue: 
   const settings = store.settings()
   const now = new Date().toISOString(), since = dayAgo()
   const evaluating = store.threads.active().filter(thread => thread.evaluating)
-  const instances = sources.instances()
-  const running = instances.filter(instance => instance.enabled && instance.installed).map(instance => sourceHealth(sources, instance, health))
-  // Exclude source-owned and policy-sync health entries so only core runtime errors surface as `runtime-error`.
-  const sourceParts = new Set(instances.flatMap(instance => sources.kind(instance.kind)?.health ?? []))
+  const { running, owned } = healthBySource(sources.instances(), sources, health)
   const problems = [
     ...(setup ? [{ kind: 'setup' as const, ...setup }] : []),
     ...(running.length ? [] : [{ kind: 'no-source' as const }]),
@@ -52,10 +63,7 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue: 
     ...(anyoneAllowed(settings) ? [] : [{ kind: 'no-allowed' as const }]),
     ...running.flatMap(source => source.health.filter(item => item.state === 'error').map(item => ({ kind: 'source-error' as const, source: { id: source.id, title: source.title, health: item } }))),
     ...(settings.paused ? [{ kind: 'executor-paused' as const }] : []),
-    // Unavailable Evals behind the `evals` health entry are listed individually as `eval-unavailable` below.
-    ...Object.entries(health).filter(([name, item]) => item.state === 'error' && !sourceParts.has(name) && !name.startsWith('sync:')
-      && name !== 'evals')
-      .map(([name, item]) => ({ kind: 'runtime-error' as const, name, detail: item.detail })),
+    ...runtimeErrors(health, owned),
     ...evaluating.filter(thread => thread.evaluating!.deadline < now)
       .map(thread => ({ kind: 'eval-overdue' as const, thread: threadSummary(view, thread) })),
     ...unjudged(store, since).map(({ thread, decision }) => ({ kind: 'eval-unavailable' as const, decisionId: decision.id,
