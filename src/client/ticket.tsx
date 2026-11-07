@@ -182,6 +182,22 @@ export function TicketPage({ id }: { id: string }) {
         { count: data.inputs.length - undelivered.length })}>
         <InputList inputs={data.inputs.filter(input => input.delivered)} />
       </Details>}
+      {data.workspace && <Details icon="review" title={t('workspace')} open>
+        <KeyValues rows={[[t('workspaceId'), <span className="dt-mono">{data.workspace}</span>],
+          [t('workspacePath'), <span className="dt-mono">{data.workspacePath ?? t('empty')}</span>]]} />
+        {data.workspaceChanges && data.workspaceChanges.changed.length + data.workspaceChanges.added.length
+          + data.workspaceChanges.deleted.length > 0
+          ? <table className="dt-table"><tbody>
+            {data.workspaceChanges.changed.map(path => <tr key={`changed:${path}`}><td>{t('workspaceChanged')}</td><td
+              className="dt-mono">{path}</td></tr>)}
+            {data.workspaceChanges.added.map(path => <tr key={`added:${path}`}><td>{t('workspaceAdded')}</td><td
+              className="dt-mono">{path}</td></tr>)}
+            {data.workspaceChanges.deleted.map(path => <tr key={`deleted:${path}`}><td>{t('workspaceDeleted')}</td><td
+              className="dt-mono">{path}</td></tr>)}
+          </tbody></table>
+          : <Hint>{t('workspaceNoChanges')}</Hint>}
+        <Hint>{t('workspaceApplyHint', { directory: data.directory ?? '' })}</Hint>
+      </Details>}
       <Details icon="hash" title={t('identifiers')}>
         <KeyValues rows={[[t('ticketId'), <span className="dt-mono">{data.id}</span>], [t('executionDirectory'), <span
           className="dt-mono">{data.directory ?? t('empty')}</span>],

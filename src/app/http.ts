@@ -17,6 +17,9 @@ import type { DshExecutor } from '../executor/dsh.ts'
 import type { Health } from '../sources/host.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
 import { localTrigger } from '../sources/local.ts'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { join, relative, sep } from 'node:path'
 import type { Sessions } from './sessions.ts'
 import type { Store } from './store.ts'
 import type { TextCache } from './cache.ts'
@@ -115,11 +118,37 @@ const views = (runtime: HttpHost): ViewHost => ({ store: runtime.store, sources:
 const setupState = (runtime: HttpHost): SetupState => ({ deployment: runtime.configured() ? runtime.deployment : undefined,
   problem: runtime.setupProblem, feishuProblem: runtime.feishuProblem })
 export type StateView = ReturnType<typeof stateView>
+/** Files that differ from a workspace snapshot's baseline; undefined when there is no snapshot. */
+function workspaceChanges(ticket: Ticket): { changed: string[]; added: string[]; deleted: string[] } | undefined {
+  const directory = ticket.execution?.directory
+  if (!directory || !ticket.execution?.workspace) return undefined
+  try {
+    const manifest = JSON.parse(readFileSync(join(directory, 'snapshot.json'), 'utf8')) as { files: Record<string, string> }
+    const current: Record<string, string> = {}
+    const walk = (path: string): void => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        if (entry.name === 'snapshot.json') continue
+        const child = join(path, entry.name)
+        if (entry.isDirectory()) { walk(child); continue }
+        if (!entry.isFile()) continue
+        current[relative(directory, child).split(sep).join('/')] = createHash('sha256').update(readFileSync(child)).digest('hex')
+      }
+    }
+    walk(directory)
+    return {
+      changed: Object.keys(current).filter(path => path in manifest.files && manifest.files[path] !== current[path]),
+      added: Object.keys(current).filter(path => !(path in manifest.files)),
+      deleted: Object.keys(manifest.files).filter(path => !(path in current)),
+    }
+  } catch { return undefined }
+}
 /** Builds a ticket's detail view; `environment` is empty while waiting for setup because it requires the resolved deployment. */
 function ticketPage(runtime: HttpHost, id: string) {
   const detail = ticketDetail(views(runtime), id), ticket = runtime.store.tickets.get(id)
   if (!detail || !ticket) throw new RouteError(404, 'Ticket not found')
-  return { ...detail, environment: runtime.configured() ? runtime.ticketEnvironment(ticket) : [] }
+  const workspace = ticket.execution?.workspace
+  return { ...detail, ...workspace ? { workspace, workspacePath: ticket.execution?.workspacePath, workspaceChanges: workspaceChanges(ticket) } : {},
+    environment: runtime.configured() ? runtime.ticketEnvironment(ticket) : [] }
 }
 export type TicketPageView = ReturnType<typeof ticketPage>
 function promptsView(runtime: HttpHost, revision: number | undefined, offset: number) {
