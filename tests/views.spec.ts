@@ -7,7 +7,7 @@ import { SettingsSchema } from '../src/policy.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
-import { snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
+import { page, snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
 import { basisFacts, ticketDetail } from '../src/app/views/tickets.ts'
 import { threadDetail } from '../src/app/views/threads.ts'
 import { droppedReplies, sourcesStatus } from '../src/app/views/sources.ts'
@@ -318,4 +318,38 @@ it('reads each ticket a page\'s follow-ups reached once, and nothing for a messa
   const records = { tickets: { get: vi.fn() }, threads: { get: vi.fn() }, triggers: store.triggers }
   expect(followupOwners(store.triggers.get('f3')!, records)).toEqual([])
   expect([records.tickets.get, records.threads.get].map(read => read.mock.calls.length)).toEqual([0, 0])
+})
+
+const pageItems = ['a', 'b', 'c', 'd', 'e']
+
+/**
+ * Asserts a page's three fields agree with one another: `items` is the requested window, `total` counts the whole list, and
+ * `next_offset` is null exactly when the window reached the end, otherwise the offset just past its last item.
+ */
+function expectPage(offset: number, limit: number, expected: { items: string[]; next_offset: number | null }) {
+  const result = page(pageItems, offset, limit)
+  expect(result).toEqual({ ...expected, total: pageItems.length })
+  expect(result.total).toBe(pageItems.length)
+  expect(result.next_offset).toBe(offset + result.items.length < result.total ? offset + result.items.length : null)
+}
+
+it('pages a list from the start and ends it on the page that reaches the end', () => {
+  // The first page continues after the items it returned.
+  expectPage(0, 2, { items: ['a', 'b'], next_offset: 2 })
+  // A page exactly the list's length ends it, as does one longer than what remains.
+  expectPage(0, 5, { items: pageItems, next_offset: null })
+  expectPage(3, 10, { items: ['d', 'e'], next_offset: null })
+})
+
+it('returns an empty page with no next offset at or past the total', () => {
+  expectPage(5, 2, { items: [], next_offset: null })
+  expectPage(6, 2, { items: [], next_offset: null })
+})
+
+it('returns no items for a zero limit, naming the same offset again until the end', () => {
+  // No item was consumed, so the next page starts where this one asked; callers require a positive limit.
+  expectPage(0, 0, { items: [], next_offset: 0 })
+  expectPage(3, 0, { items: [], next_offset: 3 })
+  // At the end there is no next page, even with a zero limit.
+  expectPage(5, 0, { items: [], next_offset: null })
 })
