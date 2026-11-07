@@ -75,6 +75,14 @@ it('leaves the UI before-and-after evidence to the delivery requirements, which 
   for (const role of ['orchestrator', 'worker'] as const) expect(composePrompt(config, role)).not.toContain('Before and After visual evidence')
 })
 
+it('tells a worker that a documentation task edits and checks the diff, and reports a change it cannot identify', () => {
+  const worker = composePrompt(defaultPrompts(), 'worker')
+  expect(worker).toContain('A documentation task, such as fixing a typo or rewording, edits the text and verifies the diff')
+  expect(worker).toContain('needs no build, package installation, spell-checking tool, web search or exploration outside the ticket directory')
+  expect(worker).toContain('report the missing detail instead of searching outside the ticket directory')
+  expect(composePrompt(defaultPrompts(), 'orchestrator')).not.toContain('A documentation task')
+})
+
 it.each(['orchestrator', 'worker'] as const)('ends the %s prompt with the fixed handoff rules and the execution environment, and the main Session\'s with its Policy', role => {
   withStore(store => {
     const prompts = promptsOf(store)
