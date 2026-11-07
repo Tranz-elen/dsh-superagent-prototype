@@ -267,3 +267,15 @@ it('does not signal a process that took the recorded service PID, and keeps a st
   expect(await run('stop', '--stop-timeout', '1')).toMatchObject({ code: 1, stderr: expect.stringContaining('Graceful stop timed out') })
   expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(true)
 }, 20_000)
+
+it('removes a state lock the stopped process left behind', async () => {
+  const stateDir = join(root, 'state', 'superagent')
+  mkdirSync(stateDir, { recursive: true })
+  const lock = `${stateDir}.lock`
+  mkdirSync(lock)
+  const url = await answering({ ...READY, setup: { problem: null, feishuProblem: null, machine: { stateDir } } }, true)
+  processes(service(sleeper()))
+  const result = await run('stop', '--url', url)
+  expect(result).toMatchObject({ code: 0, stdout: expect.stringContaining('Removed a state lock left by the stopped process.') })
+  expect(existsSync(lock)).toBe(false)
+})
