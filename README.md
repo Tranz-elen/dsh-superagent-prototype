@@ -16,6 +16,20 @@ Setup has many steps, so an agent does it with you. Ask your coding agent:
 
 It asks one short question at a time, shows the full plan once, and then installs and configures everything. [SETUP.md](SETUP.md) is what it follows.
 
+## Your first Ticket
+
+One request, from a GitHub Issue to a pull request, once [Setup](#setup) has finished. The panel is the **Superagent** entry in the DeepSeek Harness Web sidebar; [005 Panel](docs/005-panel.md) describes its pages.
+
+1. **Configure the GitHub Source.** In **Settings → Sources**, fill in the **GitHub** card: the repository as `owner/name`, and the **Agent GitHub CLI** signed in to the agent account. Then add your own login to **GitHub accounts that may originate work** under **Settings → Eval → On each Source**. Changing the card checks the account and restarts dsh-superagent. Expected: the **Source** tab shows the GitHub Source as **Running**, and the card shows the verified account.
+
+2. **Open an Issue that mentions the agent account.** Write `@<agent account> <request>`, for example `@my-agent add a --json flag to the report command`. Expected: the Issue arrives as a Trigger within about a minute, with the default polling interval.
+
+3. **Confirm the candidate in the panel.** The **Trigger** tab lists the Issue's Thread with its new Trigger; that Trigger is the candidate. Expected: the Trigger is there; a clear request needs nothing else from you.
+
+4. **Accept.** An explicit request from an account on the list needs no confirmation: the agent accepts it and opens a Ticket, and the **Eval** tab records the **Accept** Decision. Only an inferred candidate, such as a bot's comment, follows the **Accept mode** and the rules; the default **Observe** mode records it as **Ignore (would accept; observe only)** and starts nothing. Expected: the **Execution** tab lists the new Ticket as **Working**, or as **Queued** while it waits for a worker slot.
+
+5. **Follow the worker and its pull request.** Open the Ticket and choose **Open Session** to read the worker's progress; once the worker reports the pull request, the Ticket's **Subscribed Threads** lists it. Comment on the pull request or the Issue to continue the same Ticket. Expected: the worker opens a pull request, the Ticket stage becomes **Awaiting review**, and the Ticket ends when the pull request closes.
+
 ## Documentation
 
 Read the numbered documents in order; each builds only on the ones before it.
