@@ -11,7 +11,6 @@ import { attribute, markdown, plain, preview, readable } from './text.ts'
 
 export type LinkTarget = (channel: ChannelRef) => ChannelLink
 export interface ViewHost { store: Store; sources: SourceRegistry; links: LinkTarget }
-export const page = <T>(items: T[], offset: number, limit: number) => ({ items: items.slice(offset, offset + limit), total: items.length, next_offset: offset + limit < items.length ? offset + limit : null })
 const DAY = 86_400_000
 export const dayAgo = () => new Date(Date.now() - DAY).toISOString()
 export const newestFirst = (a: Ticket, b: Ticket) => b.updatedAt.localeCompare(a.updatedAt)

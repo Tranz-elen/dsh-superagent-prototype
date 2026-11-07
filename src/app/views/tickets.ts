@@ -3,8 +3,9 @@ import { liveTicket, threadKey, ticketStage, type AcceptMode, type AdmissionCell
   type TicketStage } from '../../core/index.ts'
 import { workerSessionId } from '../../executor/dsh.ts'
 import type { Store } from '../store.ts'
-import { channelLink, decisionView, newestFirst, page, snapshot, threadSummary, ticketLine, type Snapshot,
+import { channelLink, decisionView, newestFirst, snapshot, threadSummary, ticketLine, type Snapshot,
   type ViewHost } from './records.ts'
+import { page } from './page.ts'
 import { markdown, preview } from './text.ts'
 
 export type BasisFact =
