@@ -1,5 +1,7 @@
 # Phase 2 design — playbook injection
 
+[中文](DESIGN.zh.md) | English
+
 Status: design only. Nothing here is injected yet. The 20-case corpus produced three
 conventional rules (docs/test/refactor); they are not worth injecting on their own, so
 this document specifies how a reviewed playbook would enter a Session once the corpus
