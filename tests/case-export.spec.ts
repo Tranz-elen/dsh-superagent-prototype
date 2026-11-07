@@ -156,3 +156,28 @@ it('lets a conventional title prefix decide the intent before the subject does',
   // Without a prefix, the old heuristics still classify a typo as docs.
   expect(intentOf('修正 README 第 1 节的错别字', '', [])).toBe('docs')
 })
+
+it('writes a decision that never became a ticket, once, with the trigger it judged', async () => {
+  const bot: Trigger = { id: 'trigger-ci', source: 'github', threads: [{ source: 'github', id: '11' }],
+    actor: { source: 'github', id: '' }, human: false, at,
+    text: 'CI passed 0/0 on PR #11', url: 'https://github.com/acme/repo/pull/11', meta: { kind: 'ci' } }
+  const ignored: Decision = { id: 'decision-ci', evalId: 'eval-ci', threadKey: 'github:11', triggerIds: ['trigger-ci'],
+    policyVersion: 'policy-1', at, kind: 'ignore', reason: [{ code: 'not_human' }], strength: 'inferred' }
+  store.triggers.save(bot)
+  store.decisions.save(ignored)
+  store.threads.save({ key: 'github:11', ref: { source: 'github', id: '11' }, createdAt: '',
+    subscriptions: [], correlated: [], pending: [], meta: { title: 'CI on PR 11' } })
+  const exporter = new CaseExport({ store, stateDir: directory })
+  await exporter.start()
+  const lines = readFileSync(exporter.decisionsFile, 'utf8').trim().split('\n')
+  expect(lines).toHaveLength(1)
+  expect(JSON.parse(lines[0]!)).toMatchObject({
+    id: 'decision-ci', kind: 'ignore', reasons: ['not_human'], strength: 'inferred',
+    thread: 'github:11', threadTitle: 'CI on PR 11',
+    trigger: { text: 'CI passed 0/0 on PR #11', human: false, kind: 'ci' },
+  })
+  const restarted = new CaseExport({ store, stateDir: directory })
+  await restarted.start()
+  expect(restarted.decisionSize).toBe(1)
+  expect(readFileSync(restarted.decisionsFile, 'utf8').trim().split('\n')).toHaveLength(1)
+})
