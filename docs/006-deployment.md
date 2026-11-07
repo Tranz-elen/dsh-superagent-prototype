@@ -184,6 +184,22 @@ Setup must succeed before polling or work starts. Overview lists missing require
    ```
 
    Two Tickets accepted together run their prepare commands concurrently, and both write the same clone's worktree metadata. `flock` serializes them; keep the lock path per checkout. List personal CLIs, such as one signed in to your own account, as blocked commands.
+
+### Local workspaces (no GitHub)
+
+A deployment can also run Tickets against a local content directory that is not a git repository, such as a notes or mistake-notebook folder. Register it under `executor.workspaces`:
+
+```json
+{ "id": "cuotiben", "path": "/mnt/d/错题本" }
+```
+
+A local request selects it with `workspace`:
+
+```sh
+curl -X POST -H 'x-orchestrator-request: 1' -H 'content-type: application/json'   --data '{"workspace":"cuotiben","text":"..."}' http://127.0.0.1:3082/orchestrator/api/requests
+```
+
+The Executor copies the directory to `<path>/.work/<ticket>` and records every file's sha256 in `snapshot.json`; the worker edits only that snapshot and opens no PR. The case records the workspace id and the changed files. After review, apply the snapshot with `node tools/workspace/apply.mjs --snapshot <path>/.work/<ticket> --confirm`, or copy the files yourself; the worker never modifies the original directory. The panel's Execution card does not edit `workspaces` yet; save the executor block through the management API.
 4. **Prompts.** Set the team sections: the GitHub disclosure line, review bots, the commit author and the auto-merge condition.
 
 ### Management API
@@ -232,7 +248,7 @@ The blocks:
 - `source:github`, `source:feishu`: `{"enabled": true, "config": {…}}`. GitHub's config has `repository` and `cli`, and the switches `observeIssues`, `observePulls`, `observeComments` and `observeCi`, off by default, which receive every new Issue, new pull request and comment in the repository and the default branch's CI; Feishu's has `cli`, `chats` as `[{"chatId": "oc_…", "name": "…", "listen": "mentions"}]` (or `"all"`), `directMessages`, and `otherChats` as `"none"` or `"mentions"`.
 - `policy`: `{"rules": […], "sources": {"github": {"allowed": [{"id": "<login>"}], "bots": [{"id": "dependabot[bot]"}]}, "feishu": {"allowed": [{"id": "ou_…", "name": "…"}], "syncChat": "oc_…", "admission": {"oc_…": {"unlistedAddressed": "explicit"}}}}}`. `bots` lists the bots whose messages may become inferred candidates. An `admission` row is keyed by chat id, `other` or `direct` for Feishu, and by `issues`, `pulls`, `comments` or `ci` for GitHub; an unset cell takes its default (see [002 Authorization](002-authorization.md)).
 - `eval`: `mode`, `timeoutSeconds` and `model`.
-- `executor`: `model`, `maxWorkers`, `directory`, `prepare` and `blockedCommands`. The processing pause is a setting of its own, `paused`, which `POST executor/pause` sets.
+- `executor`: `model`, `maxWorkers`, `directory`, `prepare`, `blockedCommands` and `workspaces`. The processing pause is a setting of its own, `paused`, which `POST executor/pause` sets.
 
 Changing a repository or CLI runs the corresponding setup check first. A failed check returns 400 with details in `setup`. A successful account change, or any save while setup is pending, returns `restarting: true`. The API is temporarily unavailable while the application restarts.
 

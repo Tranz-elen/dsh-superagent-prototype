@@ -901,6 +901,17 @@ describe('the Executor\'s parts', () => {
     expect(execution.assignment).toContain('- Copy fixes (copy): Fix typos only.')
     expect(mandateInstructions({ strength: 'explicit' })).toBe('')
   })
+  it('places a workspace ticket in the workspace .work snapshot and forbids a PR', () => {
+    const settings = SettingsSchema.parse({ executor: { workspaces: [{ id: 'notes', path: '/tmp/notes' }] } })
+    const ticket = { id: 'ticket-0123456789abcdef', origin: { triggerId: 'tr1', triggerIds: [] },
+      mandate: { strength: 'explicit', policyVersion: 'v1', basis: {}, actor: { source: 'local', id: 'operator' }, scope: '' } } as unknown as Ticket
+    const execution = ticketExecution(ticket, { kind: 'accept', title: 'Add', scope: 'a note', reason: 'r', name: 'add-note' } as never,
+      settings, '/state', 'notes')
+    expect(execution.directory).toBe('/tmp/notes/.work/add-note-ticket-01234')
+    expect(execution).toMatchObject({ workspace: 'notes', workspacePath: '/tmp/notes' })
+    expect(execution.assignment).toContain('snapshot copy')
+    expect(execution.assignment).toContain('Do not open a pull request')
+  })
   it('renders each kind of Input as its worker reads it, inline, and no reopen Input', () => {
     const asked = { id: 'tr1', source: 'feishu', threads: [{ source: 'feishu', id: 'oc:om_1' }], actor: { source: 'feishu', id: 'ou_a' }, human: true,
       at: '2026-09-01T00:00:00Z', text: 'Which page?', meta: {} } as Trigger

@@ -94,6 +94,11 @@ export const ExecutorConfigSchema = z.object({
   directory: z.string().trim().refine(path => path === '' || path.startsWith('/'), 'An absolute path, or empty for <stateDir>/work').default(''),
   prepare: z.string().max(LIMITS.prepareCommand).default(''),
   blockedCommands: z.array(CommandNameSchema).default([]),
+  // Local content directories a ticket may work on, snapshotted under <path>/.work/<ticket>.
+  workspaces: z.array(z.object({
+    id: z.string().regex(/^[a-z][a-z0-9-]*$/),
+    path: z.string().trim().refine(path => path.startsWith('/'), 'An absolute path'),
+  }).strict()).refine(list => new Set(list.map(item => item.id)).size === list.length, 'Duplicate workspace IDs').default([]),
 }).strict()
 export const SourceInstanceSchema = z.object({ enabled: z.boolean().default(true), config: z.record(z.string(), z.unknown()).default({}) }).strict()
 export const SettingsSchema = z.object({
