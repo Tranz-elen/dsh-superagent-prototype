@@ -319,7 +319,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/outbox.ts` | The Outbox: the Engine's `Outbox` port, the receipts and the `reply` effects that send them |
 | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
 | `src/app/store.ts` | The Store, and `Receipt`, a message of the outbox |
-| `src/app/cases.ts` | `CaseExport`: one JSONL case per ended Ticket, written once, for the memory pipeline's offline distillation |
+| `src/app/cases.ts` | `CaseExport`: one JSONL case per ended Ticket and one record per ticket-less Decision, written once, for the memory pipeline's offline distillation |
 | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
 | `src/app/migration.ts` | The schema 11 migration: one step from schema 10 that writes every stored record in its current shape |
 | `src/app/effects.ts` | Effects |

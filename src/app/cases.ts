@@ -7,7 +7,11 @@
  * written whenever the Ticket ends, and catches up on startup for Tickets that ended while
  * the host was down.
  *
- * Writing is idempotent per Ticket: the file's existing ids are loaded at start, and a line is
+ * Decisions that never became Tickets (an ignore, a refused stop, an unavailable assessment) are
+ * written to `<stateDir>/decisions.jsonl` by the same mechanism, because they are the boundary
+ * samples for "should this be accepted?".
+ *
+ * Writing is idempotent per record: the files' existing ids are loaded at start, and a line is
  * appended only once. A malformed or partial last line is ignored on load.
  */
 import { execFile } from 'node:child_process'
@@ -142,6 +146,52 @@ export function caseOf(input: {
   }
 }
 
+/** A Decision that never became a Ticket: the boundary sample an ignore, stop or unavailable leaves. */
+export interface DecisionRecord {
+  id: string
+  at: string
+  kind: string
+  strength: string
+  reasons: string[]
+  policyVersion: string
+  thread: string
+  threadTitle?: string
+  trigger?: {
+    text: string
+    actor: { source: string; id: string }
+    human: boolean
+    addressed?: 'mention' | 'direct'
+    url?: string
+    kind?: string
+  }
+  audit?: Record<string, unknown>
+}
+
+/** Reduces a Decision and the Trigger it judged into a decision-only record. */
+export function decisionOf(input: { decision: Decision; trigger?: Trigger; threadTitle?: string }): DecisionRecord {
+  const { decision, trigger, threadTitle } = input
+  const kind = trigger?.meta?.kind
+  return {
+    id: decision.id,
+    at: decision.at,
+    kind: decision.kind,
+    strength: decision.strength,
+    reasons: decision.reason.map(reason => reason.code),
+    policyVersion: decision.policyVersion,
+    thread: decision.threadKey,
+    ...(threadTitle ? { threadTitle } : {}),
+    ...(trigger ? { trigger: {
+      text: trigger.text,
+      actor: trigger.actor,
+      human: trigger.human,
+      ...(trigger.addressed ? { addressed: trigger.addressed } : {}),
+      ...(trigger.url ? { url: trigger.url } : {}),
+      ...(typeof kind === 'string' ? { kind } : {}),
+    } } : {}),
+    ...(decision.audit ? { audit: decision.audit } : {}),
+  }
+}
+
 /** Changed files of a ticket's work directory against the base branch; empty when unavailable. */
 async function changedFiles(directory: string | undefined): Promise<string[]> {
   if (!directory) return []
@@ -162,10 +212,13 @@ export interface CaseExportOptions {
   report?: (error: unknown) => void
 }
 
-/** Appends one case per ended ticket to `<stateDir>/cases.jsonl`, once each. */
+/** Appends one case per ended ticket and one record per ticket-less decision, once each. */
 export class CaseExport {
   readonly file: string
+  /** Decisions that never became Tickets: ignore, refused stop, unavailable. */
+  readonly decisionsFile: string
   private readonly exported = new Set<string>()
+  private readonly exportedDecisions = new Set<string>()
   private readonly store: Store
   private readonly report: (error: unknown) => void
   private started = false
@@ -175,14 +228,15 @@ export class CaseExport {
   constructor(options: CaseExportOptions) {
     this.store = options.store
     this.file = join(options.stateDir, 'cases.jsonl')
+    this.decisionsFile = join(options.stateDir, 'decisions.jsonl')
     this.report = options.report ?? (() => {})
   }
 
-  /** Loads the ids already on disk, then catches up on tickets that ended earlier. */
+  /** Loads the ids already on disk, then catches up on tickets that ended and decisions that were made earlier. */
   async start(): Promise<void> {
     this.load()
     this.started = true
-    this.chain = this.chain.then(() => this.flush())
+    this.chain = this.chain.then(async () => { await this.flush(); await this.flushDecisions() })
     await this.chain
   }
 
@@ -195,17 +249,31 @@ export class CaseExport {
     this.chain = this.chain.then(() => this.flush())
   }
 
+  /** Asks for the record of a Decision that ended without a Ticket; deferred like `request`. */
+  requestDecision(decisionId: string): void {
+    if (!this.started) return
+    this.chain = this.chain.then(() => this.flushDecisions(decisionId))
+  }
+
   /** Resolves once every requested flush has run. */
   idle(): Promise<void> { return this.chain }
 
-  /** Exported count, for tests and status reads. */
+  /** Exported ticket-case count, for tests and status reads. */
   get size(): number { return this.exported.size }
 
+  /** Exported decision-only count, for tests and status reads. */
+  get decisionSize(): number { return this.exportedDecisions.size }
+
   private load(): void {
-    if (!existsSync(this.file)) return
-    for (const line of readFileSync(this.file, 'utf8').split('\n')) {
+    this.loadIds(this.file, this.exported)
+    this.loadIds(this.decisionsFile, this.exportedDecisions)
+  }
+
+  private loadIds(file: string, into: Set<string>): void {
+    if (!existsSync(file)) return
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
       if (!line.trim()) continue
-      try { this.exported.add((JSON.parse(line) as { id: string }).id) } catch { /* a partial trailing line is ignored */ }
+      try { into.add((JSON.parse(line) as { id: string }).id) } catch { /* a partial trailing line is ignored */ }
     }
   }
 
@@ -226,6 +294,24 @@ export class CaseExport {
         })
         appendFileSync(this.file, `${JSON.stringify(record)}\n`, { mode: 0o600 })
         this.exported.add(ticket.id)
+      }
+    } catch (error) {
+      this.report(error)
+    }
+  }
+
+  private async flushDecisions(only?: string): Promise<void> {
+    if (!this.started) return
+    try {
+      for (const decision of this.store.decisions.list()) {
+        if (decision.ticketId || this.exportedDecisions.has(decision.id)) continue
+        if (only !== undefined && decision.id !== only) continue
+        const triggerId = decision.triggerIds[0]
+        const trigger = triggerId ? this.store.triggers.get(triggerId) : undefined
+        const title = this.store.threads.get(decision.threadKey)?.meta?.title
+        const record = decisionOf({ decision, ...(trigger ? { trigger } : {}), ...(typeof title === 'string' ? { threadTitle: title } : {}) })
+        appendFileSync(this.decisionsFile, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+        this.exportedDecisions.add(decision.id)
       }
     } catch (error) {
       this.report(error)

@@ -152,6 +152,8 @@ export class Runtime extends Service implements SourceHost {
           // Notify the ticket's conversations whenever it ends via a pull request.
           const ended = event.type === 'ticket.ended' ? store.tickets.get(event.data.ticketId) : undefined
           if (ended) cases.request()
+          // A Decision that ends without a Ticket (ignore, refused stop, unavailable) is a boundary sample.
+          if (event.type === 'decision.recorded') cases.requestDecision(event.data.decisionId)
           if (ended && setup.configured()) {
             const request = store.triggers.get(ended.origin.triggerId)?.text ?? ''
             for (const message of pullEndNotices(ended, request, setup.deployment.repository)) outbox.send(message)
