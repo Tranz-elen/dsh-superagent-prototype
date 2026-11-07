@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -14,6 +15,7 @@ import { openKnownSession, SessionNavigationError } from '../navigation.ts'
 import { App } from './app.tsx'
 import { PluginConfig, usePageForm } from './deployment.tsx'
 import { en, zh } from './locales.ts'
+import { useThemeControl } from './theme.tsx'
 import type { T } from './text.ts'
 
 type ClientContext = Context & { sessions: ISessions }
@@ -42,7 +44,8 @@ function Mounted({ ctx, t }: { ctx: ClientContext; t: T }) {
     }
   }, [ctx, t])
   const form = usePageForm(ctx.get('configForms')?.get<Record<string, unknown>>(ENTRY))
-  return <App t={t} openSession={openSession} deploymentForm={form} />
+  const theme = useThemeControl(ctx)
+  return <App t={t} openSession={openSession} deploymentForm={form} theme={theme} />
 }
 
 export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']

@@ -40,6 +40,7 @@ Ticket details show the originating Trigger, Decision and reason, scope and Poli
 
   An upgrade that changes an overridden default marks it **Default updated** (默认内容已更新). The panel compares the old and new defaults above the team's text. If the old default was not recorded, it compares the team's text with the new default instead. Choose **Keep my text** or **Use the new default**. Overrides for removed parts are listed below the tab bar and dropped on the next save.
 - **Deployment:** startup problems with **Check again**, the state directory and machine limits. Saved limits apply without restart. The DeepSeek Harness Plugin Manager exposes the same page.
+- **Appearance:** the panel theme preference: follow the system, light, or dark. The choice is stored in the host's theme settings, shared with **Settings → General** in DeepSeek Harness, and every panel color follows the host's `--dsw-*` theme tokens.
 
 ## Search
 
