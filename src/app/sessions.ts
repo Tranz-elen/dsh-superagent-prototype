@@ -257,8 +257,15 @@ export class Sessions {
     await skillScope
     // Bail out if the agent was disposed while awaiting the skill scope.
     if (this.bindings.get(agent) !== binding) return
+    this.decorateTools(agent, binding, master, ticket)
+  }
+  /**
+   * Registers the tools `Sessions` adds to `agent` and applies the agent's tool limits: the main Session's allow list and wait
+   * guard, or an Executor Session's work tools and the guard that ends them with its ticket. Subagents are limited elsewhere.
+   */
+  private decorateTools(agent: Agent, binding: SessionBinding, master: boolean, ticket: Ticket | undefined): void {
     const register = this.registerTool(agent, binding)
-    for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
+    for (const tool of this.host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
       binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
