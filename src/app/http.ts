@@ -11,11 +11,12 @@ import { PromptConflict, SKILL_NAME, SKILL_PREFIX, TEAM_SECTIONS, builtInBase, b
 import { policyVersion } from '../policy.ts'
 import { SettingsConflict, type Settings } from './settings.ts'
 import { SetupError, type SetupProblem } from '../setup.ts'
-import { UserError, type EngineForPeople, type Ticket } from '../core/index.ts'
+import { UserError, type EngineForPeople, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
 import type { Deployment, Machine } from '../deployment.ts'
 import type { DshExecutor } from '../executor/dsh.ts'
 import type { Health } from '../sources/host.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
+import { localTrigger } from '../sources/local.ts'
 import type { Sessions } from './sessions.ts'
 import type { Store } from './store.ts'
 import type { TextCache } from './cache.ts'
@@ -37,6 +38,8 @@ export interface HttpHost {
   readonly sessions: Pick<Sessions, 'status' | 'notify' | 'delivery'>
   readonly settings: Pick<Settings, 'view' | 'save' | 'pause' | 'sync' | 'refreshLabels'>
   readonly engine: EngineForPeople
+  /** Accepts an operator request typed into the panel; it enters the same pipeline as a Source message. */
+  receive(trigger: Trigger): ReceiveResult
   readonly executor: Pick<DshExecutor, 'activeCount'>
   readonly health: Record<string, Health>
   readonly machine: Machine
@@ -160,6 +163,13 @@ function routes(runtime: HttpHost): Routes {
     'GET sources': () => sourcesStatus(views(runtime), runtime.health, setupState(runtime)),
     'GET settings': () => settingsView(store, runtime.sources, runtime.health, setupState(runtime), runtime.machine.stateDir),
     'POST sources/:id/labels': ({ params }) => runtime.settings.refreshLabels(params.id),
+    // An operator request typed into the panel or sent by a local client; it enters the same pipeline as a Source message.
+    'POST requests': async ({ body }) => {
+      const request = z.object({ text: z.string().trim().min(1).max(20_000) }).parse(await body(24_000))
+      const received = runtime.receive(localTrigger(request.text))
+      runtime.requestPass()
+      return { received }
+    },
     'GET threads': ({ query }) => {
       const { filter, offset, limit } = ThreadsQuery.parse(query)
       return threadList(views(runtime), filter, offset, limit)
