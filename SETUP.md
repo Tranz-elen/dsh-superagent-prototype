@@ -191,7 +191,7 @@ gh auth status
 gh repo view <owner>/<repo> --json viewerPermission --jq .viewerPermission
 ```
 
-`gh auth status` lists the token scopes. The second command prints `ADMIN`, `MAINTAIN`, `WRITE` or `READ` when the token can see the repository; a 404 means it cannot.
+`gh auth status` lists the token scopes. The second command prints `ADMIN`, `MAINTAIN`, `WRITE` or `READ` when the token can see the repository; otherwise it fails with `Could not resolve to a Repository`.
 
 **Fix:** sign in again with the `repo` scope:
 
