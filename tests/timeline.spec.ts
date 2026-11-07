@@ -62,3 +62,58 @@ it('stores every received Trigger\'s time in the one form stored times take', ()
   expect(store.triggers.get('raw')?.at).toBe('2026-10-01T00:00:00.000Z')
   expect(store.read.threadTriggers('github:7').map(item => item.at)).toEqual(['2026-10-01T00:00:00.000Z'])
 })
+
+const cursor = (trigger: { at: string; id: string }) => `${trigger.at}|${trigger.id}`
+const detail = (before: string | undefined, limit: number, around?: string) => threadDetail(host(), 'github:7', before, limit, around)!
+/** Saves the thread `github:7` with comments `a`..`e`, one second apart, and returns them oldest-first. */
+function fiveComments() {
+  const items = ['a', 'b', 'c', 'd', 'e'].map((id, index) => comment(id, `2026-10-01T00:00:0${index}.000Z`))
+  saveThread()
+  for (const item of items) store.triggers.save(item)
+  return items
+}
+
+it('returns an empty timeline and no earlier cursor for a thread without Triggers', () => {
+  saveThread()
+  expect(detail(undefined, 50)).toMatchObject({ timeline: [], earlier: null })
+  // A `before` cursor on an empty thread has nothing to return either.
+  expect(detail('2026-10-01T00:00:00.000Z|a', 5)).toMatchObject({ timeline: [], earlier: null })
+})
+
+it('pages nothing before the oldest Trigger', () => {
+  fiveComments()
+  const [oldest, second] = detail(undefined, 50).timeline
+  // A page requested before the oldest Trigger is empty and ends the timeline.
+  expect([ids(detail(cursor(oldest!), 50)), detail(cursor(oldest!), 50).earlier]).toEqual([[], null])
+  // The cursor's own Trigger is excluded, so a page before the second-oldest Trigger starts at the oldest one.
+  expect(ids(detail(cursor(second!), 50))).toEqual(['a'])
+})
+
+it('anchors around a Trigger near either end of the timeline', () => {
+  const items = fiveComments()
+  // Near the oldest end the page stops at the anchor instead of padding with newer Triggers.
+  expect([ids(detail(undefined, 2, 'b')), detail(undefined, 2, 'b').earlier]).toEqual([['a', 'b'], null])
+  // At the oldest Trigger itself only the anchor fits, with nothing earlier to load.
+  expect([ids(detail(undefined, 2, 'a')), detail(undefined, 2, 'a').earlier]).toEqual([['a'], null])
+  // Near the newest end the page ends on the anchor and leaves the Triggers before it to an earlier page.
+  const nearNewest = detail(undefined, 2, 'd')
+  expect([ids(nearNewest), nearNewest.earlier]).toEqual([['c', 'd'], cursor(items[2]!)])
+})
+
+it('returns every Trigger and no earlier cursor when the limit exceeds the timeline length', () => {
+  fiveComments()
+  const page = detail(undefined, 50)
+  expect([ids(page), page.earlier]).toEqual([['a', 'b', 'c', 'd', 'e'], null])
+})
+
+it('walks backwards through the timeline without gaps or repeats', () => {
+  fiveComments()
+  const pages: string[][] = []
+  let page = detail(undefined, 2)
+  while (true) {
+    pages.unshift(ids(page))
+    if (page.earlier === null) break
+    page = detail(page.earlier, 2)
+  }
+  expect(pages).toEqual([['a'], ['b', 'c'], ['d', 'e']])
+})
