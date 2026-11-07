@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parent.parent
 ARTIFACTS = ROOT / '.artifacts'
 CONTROL = ARTIFACTS / 'control'
 KEEP_LOGS = 20
+# Node renames its main thread, and Linux `ps` reports that name instead of `node`.
+PROCESS_NAMES = ('node', 'dsh', 'MainThread')
 
 
 def control(profile):
@@ -65,12 +67,12 @@ def ps(*options, check=False):
 
 def running(pid, profile):
     """Return whether `pid` is currently running the DSH service for `profile` (`ps -p` returns nothing once exited)."""
-    return any(found == pid and name in ('node', 'dsh') and serves(args, profile) for found, name, args in ps('-p', str(pid)))
+    return any(found == pid and name in PROCESS_NAMES and serves(args, profile) for found, name, args in ps('-p', str(pid)))
 
 
 def processes(profile):
     """Return PIDs of all running DSH service processes for `profile`, including instances started outside this script and the recorded `service.pid` while still running."""
-    found = [pid for pid, name, args in ps('-ax', check=True) if name in ('node', 'dsh') and serves(args, profile)]
+    found = [pid for pid, name, args in ps('-ax', check=True) if name in PROCESS_NAMES and serves(args, profile)]
     try:
         pid = int((control(profile) / 'service.pid').read_text())
     except (OSError, ValueError):
@@ -88,11 +90,24 @@ def state(url):
         # Keys omitted by another version read as empty so the service is not mistaken for unreachable.
         health, setup = value.get('health') or {}, value.get('setup') or {}
         entries = {name: entry if isinstance(entry, dict) else {} for name, entry in health.items()}
+        machine = setup.get('machine') or {}
         return {'health': {name: entry.get('state') for name, entry in entries.items()},
                 'errors': {name: str(entry.get('detail', '')) for name, entry in entries.items() if entry.get('state') == 'error'},
-                'setup': setup.get('problem'), 'feishu': setup.get('feishuProblem')}
+                'setup': setup.get('problem'), 'feishu': setup.get('feishuProblem'),
+                'state_dir': machine.get('stateDir')}
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def clear_lock(state_dir):
+    """Remove a state-directory lock a stopped process left behind; the caller confirmed that no service runs."""
+    if not state_dir:
+        return False
+    lock = Path(str(state_dir) + '.lock')
+    if not lock.exists():
+        return False
+    shutil.rmtree(lock, ignore_errors=True)
+    return True
 
 
 PART_ERROR = 2
@@ -132,6 +147,8 @@ def status(args):
 def stop(args, intentional=True):
     """Stop the service gracefully, recording a manual stop marker when `intentional` is True."""
     pids = processes(args.profile)
+    # Read the state directory while the API still answers; a stop can leave its lock directory behind.
+    current = state(args.url) if pids else None
     if len(pids) > 1:
         raise RuntimeError('Multiple dsh-superagent processes found; refusing to choose one.')
     # Write the stop marker before waiting so monitors respect the intentional stop even if graceful shutdown times out.
@@ -145,6 +162,8 @@ def stop(args, intentional=True):
             raise RuntimeError('Graceful stop timed out; no forced kill was sent. Check status.')
         time.sleep(0.5)
     (control(args.profile) / 'service.pid').unlink(missing_ok=True)
+    if clear_lock((current or {}).get('state_dir')):
+        print('Removed a state lock left by the stopped process.')
     print('dsh-superagent stopped. Automatic recovery is paused until start/restart.' if intentional else 'dsh-superagent stopped.')
 
 
