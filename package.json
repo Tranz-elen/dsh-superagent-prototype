@@ -49,7 +49,11 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "memory:export": "node tools/memory/export-cases.mjs",
+    "memory:decisions": "node tools/memory/export-decisions.mjs",
+    "memory:analyze": "node tools/memory/analyze-cases.mjs",
+    "memory:distill": "node tools/memory/distill.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
