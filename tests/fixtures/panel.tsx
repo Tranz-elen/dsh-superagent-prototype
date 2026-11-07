@@ -5,18 +5,24 @@ import { expect, vi } from 'vitest'
 import { App } from '../../src/client/app.tsx'
 import { usePageForm } from '../../src/client/deployment.tsx'
 import { zh } from '../../src/client/locales.ts'
+import { useThemeControl, type ThemeHost } from '../../src/client/theme.tsx'
 import type { T } from '../../src/client/text.ts'
 import { server, usePanelServer } from './panel-server.ts'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+/** A host with no theme plugin, as older compositions may be. */
+export const NO_THEME: ThemeHost = { get: () => undefined, on: () => () => {} }
+
 export const translator = (dictionary: Record<string, string>): T => ((key: string, params?: Record<string, unknown>) => {
   const template = dictionary[key] ?? key
   return params ? template.replace(/\{(\w+)\}/g, (match, name: string) => name in params ? String(params[name]) : match) : template
 }) as T
+let themeHost: ThemeHost = NO_THEME
 function Panel({ t }: { t: T }) {
-  return <App t={t} openSession={async id => { server.opened.push(id) }} deploymentForm={usePageForm(server.form)} />
+  const theme = useThemeControl(themeHost)
+  return <App t={t} openSession={async id => { server.opened.push(id) }} deploymentForm={usePageForm(server.form)} theme={theme} />
 }
 let root: Root | undefined
 let container: HTMLElement | undefined
@@ -35,13 +41,16 @@ export async function settle() {
   })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 }
-export async function mount(dictionary: Record<string, string> = zh) {
+export async function mount(dictionary: Record<string, string> = zh, host: ThemeHost = NO_THEME) {
+  themeHost = host
   container = document.createElement('div'); document.body.append(container)
   root = createRoot(container)
   await act(async () => { root!.render(<Panel t={translator(dictionary)} />) })
   await settle()
 }
-export async function remount(dictionary: Record<string, string> = zh) { unmount(); await mount(dictionary) }
+export async function remount(dictionary: Record<string, string> = zh, host: ThemeHost = NO_THEME) {
+  unmount(); await mount(dictionary, host)
+}
 
 export const all = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)]
 const CONTROLS = 'button, [role="button"], [role="tab"], [role="switch"], a'
