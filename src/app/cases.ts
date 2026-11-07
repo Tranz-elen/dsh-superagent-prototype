@@ -58,8 +58,18 @@ export interface CaseRecord {
 /** Top-level directory a changed file lives under, `(root)` for a file at the repository root. */
 const areaOf = (file: string): string => file.includes('/') ? file.slice(0, file.indexOf('/')) : '(root)'
 
-/** Classifies a ticket's intent from its title, request and changed files; the title decides most cases. */
+/** Classifies a ticket's intent from its title, request and changed files; a conventional title prefix decides first. */
 export function intentOf(title: string, text: string, files: readonly string[]): string {
+  // "bugfix: 文档类任务…" is a bugfix, not docs: the prefix names the work, the rest names the subject.
+  const prefix = /^\s*(bugfix|hotfix|fix|docs?|documentation|tests?|refactor|perf|chore|ci|build|feat|feature)\b\s*[:\-—]/i.exec(title)?.[1]?.toLowerCase()
+  if (prefix) {
+    if (['bugfix', 'hotfix', 'fix'].includes(prefix)) return 'bugfix'
+    if (['doc', 'docs', 'documentation'].includes(prefix)) return 'docs'
+    if (['test', 'tests'].includes(prefix)) return 'test'
+    if (['refactor', 'perf', 'chore'].includes(prefix)) return 'refactor'
+    if (['ci', 'build'].includes(prefix)) return 'ci'
+    if (['feat', 'feature'].includes(prefix)) return 'feature'
+  }
   const s = `${title}\n${text}`
   // Title first: an issue body may carry a "TEST" marker or quoted logs that must not pick the intent.
   if (/文档|README|docs|说明/i.test(s)) return 'docs'
