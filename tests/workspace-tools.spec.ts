@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { snapshotWorkspace } from '../src/executor/dsh.ts'
 
 let directory: string
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'workspace-tools-')) })
@@ -46,6 +47,18 @@ it('snapshots, diffs and applies a change when the workspace is untouched', () =
   expect(readFileSync(join(workspace(), 'c.md'), 'utf8')).toBe('new\n')
 })
 
+it('snapshots a workspace from the Executor and records every file hash', async () => {
+  seed()
+  mkdirSync(join(workspace(), '.work', 'old'), { recursive: true })
+  writeFileSync(join(workspace(), '.work/old/junk.md'), 'excluded\n')
+  const target = join(directory, 'snapshot')
+  await snapshotWorkspace(workspace(), target)
+  expect(existsSync(join(target, 'a.md'))).toBe(true)
+  expect(existsSync(join(target, 'sub/b.md'))).toBe(true)
+  expect(existsSync(join(target, '.work'))).toBe(false)
+  const manifest = JSON.parse(readFileSync(join(target, 'snapshot.json'), 'utf8'))
+  expect(Object.keys(manifest.files).sort()).toEqual(['a.md', 'sub/b.md', '练习/page.html'])
+})
 it('refuses to overwrite a workspace file changed after the snapshot', () => {
   seed()
   run('snapshot.mjs', ['--workspace', workspace(), '--id', 't2'])

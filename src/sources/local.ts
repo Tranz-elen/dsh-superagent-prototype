@@ -35,7 +35,7 @@ export const localKind: SourceKind<Record<string, unknown>> = {
 }
 
 /** Builds one operator request as a Trigger on its own Thread, so follow-ups cannot cross requests. */
-export function localTrigger(text: string, at = new Date().toISOString()): Trigger {
+export function localTrigger(text: string, at = new Date().toISOString(), workspace?: string): Trigger {
   const id = key('local', `${at}:${text}`)
   return {
     id,
@@ -46,7 +46,7 @@ export function localTrigger(text: string, at = new Date().toISOString()): Trigg
     addressed: 'direct',
     at,
     text,
-    meta: { kind: 'request' },
+    meta: { kind: 'request', ...workspace ? { workspace } : {} },
   }
 }
 

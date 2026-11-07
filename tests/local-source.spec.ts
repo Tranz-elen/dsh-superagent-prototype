@@ -12,6 +12,9 @@ it('builds a human direct request on its own thread', () => {
   expect(localTrigger('另一件事').threads[0]!.id).not.toBe(trigger.threads[0]!.id)
 })
 
+it('marks a workspace request so the Executor snapshots that workspace', () => {
+  expect(localTrigger('改错题本', '2026-11-07T00:00:00.000Z', 'notes').meta).toEqual({ kind: 'request', workspace: 'notes' })
+})
 it('defaults the Local Policy to the operator and admits a direct request as explicit', () => {
   expect(localKind.policy!.schema.parse({})).toMatchObject({ allowed: [{ id: 'operator' }] })
   const settings = SettingsSchema.parse({ policy: { sources: { local: { allowed: [{ id: 'operator' }], admission: {} } } } })

@@ -2,8 +2,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { mkdir, rmdir, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { cp, mkdir, readFile, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { dirname, join, relative, sep } from 'node:path'
 import { key, latestAssignment, latestReport, liveTicket, runningAssignment, threadKey, waitsForPerson } from '../core/index.ts'
 import type { AssessmentOutcome, Assignment, EngineForExecutor, Execution, Executor, Mandate, PolicyEffect, Ticket, TicketInput, Trigger }
   from '../core/index.ts'
@@ -95,8 +96,9 @@ export function mandateInstructions(mandate: Pick<Mandate, 'strength'>): string 
 }
 /** Builds a newly accepted ticket's Execution metadata: its worktree name, workspace directory, and assignment text. */
 export function ticketExecution(ticket: Ticket, outcome: Extract<AssessmentOutcome, { kind: 'accept' }>, settings: Settings,
-  stateDir: string): Execution {
+  stateDir: string, workspaceId?: string): Execution {
   const name = ticketWorktreeName(outcome.name ?? '', ticket.id)
+  const workspace = workspaceId ? settings.executor.workspaces.find(item => item.id === workspaceId) : undefined
   const source = ticket.origin.triggerId
   const note = outcome.note ? `\nRouting note (not the source request): ${outcome.note}` : ''
   const ruleIds = ticket.mandate.basis.rules
@@ -107,7 +109,40 @@ export function ticketExecution(ticket: Ticket, outcome: Extract<AssessmentOutco
   const assignment = ticket.mandate.strength === 'inferred' && ruleIds
     ? `Proactively accepted under ${ruleIds.join(', ')}. Scope: ${outcome.scope}.${precedence}${note}`
     : note.trim()
-  return { name, directory: join(executionRoot(settings, stateDir), name), assignment }
+  if (!workspace) return { name, directory: join(executionRoot(settings, stateDir), name), assignment }
+  // A workspace ticket edits a snapshot on the workspace's own drive, so Windows tools can run on it; it never opens a PR.
+  const directory = join(workspace.path, '.work', name)
+  const protocol = `\nThis is a local workspace task. Work only in the snapshot copy at ${directory}; do not modify ${workspace.path}. `
+    + 'Do not open a pull request, push, or commit to GitHub. Report the changed files and a diff summary when done. '
+    + 'Any status change (已掌握/巩固中) must cite the raw score code and the page sha256 from snapshot.json; if it cannot, write 待核对 instead of changing the status.'
+  return { name, directory, assignment: `${assignment}${protocol}`, workspace: workspace.id, workspacePath: workspace.path }
+}
+/** Copies a local workspace to the ticket's snapshot directory and records each file's sha256 in snapshot.json. */
+export async function snapshotWorkspace(source: string, directory: string): Promise<void> {
+  const exclude = new Set(['.work', '.git', 'node_modules'])
+  const maxBytes = 5 * 1024 * 1024
+  const files: Record<string, string> = {}
+  const skipped: string[] = []
+  const walk = async (path: string): Promise<void> => {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      if (exclude.has(entry.name)) continue
+      const child = join(path, entry.name)
+      if (entry.isDirectory()) { await walk(child); continue }
+      if (!entry.isFile()) continue
+      if ((await stat(child)).size > maxBytes) { skipped.push(relative(source, child)); continue }
+      files[relative(source, child).split(sep).join('/')] = createHash('sha256').update(await readFile(child)).digest('hex')
+    }
+  }
+  await walk(source)
+  await rm(directory, { recursive: true, force: true })
+  await mkdir(directory, { recursive: true })
+  for (const path of Object.keys(files)) {
+    const target = join(directory, path)
+    await mkdir(dirname(target), { recursive: true })
+    await cp(join(source, path), target)
+  }
+  await writeFile(join(directory, 'snapshot.json'),
+    `${JSON.stringify({ workspace: source, createdAt: new Date().toISOString(), files, skipped }, null, 2)}\n`)
 }
 /** Character limits for inline assignment and trigger text in worker messages; longer text is read via its resource. */
 const ASSIGNMENT_CHARS = 1500, TRIGGER_CHARS = 600
@@ -236,7 +271,9 @@ export class DshExecutor implements Executor {
   }
   /** Populates a newly accepted ticket's `execution` attributes (worktree name, workspace directory, and assignment text). */
   prepare(ticket: Ticket, outcome: Extract<AssessmentOutcome, { kind: 'accept' }>): Ticket {
-    return { ...ticket, execution: ticketExecution(ticket, outcome, this.host.store.settings(), this.host.machine.stateDir) }
+    const trigger = this.host.store.triggers.get(ticket.origin.triggerId)
+    const workspace = typeof trigger?.meta.workspace === 'string' ? trigger.meta.workspace : undefined
+    return { ...ticket, execution: ticketExecution(ticket, outcome, this.host.store.settings(), this.host.machine.stateDir, workspace) }
   }
   /**
    * Runs the configured `executor.prepare` command for a new ticket workspace in its parent directory with the ticket's
@@ -246,6 +283,14 @@ export class DshExecutor implements Executor {
    */
   private async prepareDirectory(ticket: Ticket): Promise<void> {
     const directory = ticket.execution?.directory ?? ''
+    if (ticket.execution?.workspacePath) {
+      try { await snapshotWorkspace(ticket.execution.workspacePath, directory) }
+      catch (error: unknown) {
+        throw new PrepareFailed(`The workspace snapshot failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      await verifyDirectory(directory, this.host.context.subprocess, this.host.lifetime)
+      return
+    }
     await mkdir(dirname(directory), { recursive: true })
     const command = this.host.store.settings().executor.prepare.trim()
     const env = Object.fromEntries(this.host.environment(ticket).map(variable => [variable.key, variable.value]))

@@ -16,6 +16,9 @@
  */
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { readFile, readdir, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { relative, sep } from 'node:path'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ticketOutcome, type Decision, type Ticket, type Trigger, type TriggerDisposition } from '../core/index.ts'
@@ -29,6 +32,8 @@ export interface CaseRecord {
   id: string
   repo?: string
   source?: string
+  /** Set for a local workspace ticket: the registered workspace id. */
+  workspace?: string
   kind?: string
   title: string
   request?: string
@@ -109,11 +114,13 @@ export function caseOf(input: {
   const humanFollowUps = ticket.inputs.filter(input => input.kind === 'trigger' && input.human).length
   const areas = [...new Set(files.map(areaOf))]
   const repo = repoOf(trigger)
+  const workspace = typeof trigger?.meta.workspace === 'string' ? trigger.meta.workspace : undefined
   const scopeKind = ticket.mandate.basis.scope?.kind
   const kind = typeof scopeKind === 'string' ? scopeKind : undefined
   return {
     id: ticket.id,
     ...(repo ? { repo } : {}),
+    ...(workspace ? { workspace } : {}),
     ...(trigger?.source ? { source: trigger.source } : {}),
     ...(kind ? { kind } : {}),
     title: ticket.title,
@@ -193,8 +200,26 @@ export function decisionOf(input: { decision: Decision; trigger?: Trigger; threa
 }
 
 /** Changed files of a ticket's work directory against the base branch; empty when unavailable. */
-async function changedFiles(directory: string | undefined): Promise<string[]> {
+async function changedFiles(directory: string | undefined, workspace = false): Promise<string[]> {
   if (!directory) return []
+  if (workspace) {
+    // The snapshot manifest is the baseline; a workspace is not a git repository.
+    try {
+      const manifest = JSON.parse(readFileSync(join(directory, 'snapshot.json'), 'utf8')) as { files: Record<string, string> }
+      const current: Record<string, string> = {}
+      const walk = async (path: string): Promise<void> => {
+        for (const entry of await readdir(path, { withFileTypes: true })) {
+          if (entry.name === 'snapshot.json') continue
+          const child = join(path, entry.name)
+          if (entry.isDirectory()) { await walk(child); continue }
+          if (!entry.isFile()) continue
+          current[relative(directory, child).split(sep).join('/')] = createHash('sha256').update(await readFile(child)).digest('hex')
+        }
+      }
+      await walk(directory)
+      return Object.keys(current).filter(path => manifest.files[path] !== current[path])
+    } catch { return [] }
+  }
   for (const base of ['origin/main', 'main', 'origin/master', 'master']) {
     try {
       const { stdout: sha } = await run('git', ['-C', directory, 'rev-parse', '--verify', '--quiet', base], { timeout: 5_000 })
@@ -290,7 +315,7 @@ export class CaseExport {
           ...(trigger ? { trigger } : {}),
           ...(decision ? { decision } : {}),
           ...(disposition ? { disposition } : {}),
-          files: await changedFiles(ticket.execution?.directory),
+          files: await changedFiles(ticket.execution?.directory, ticket.execution?.workspace !== undefined),
         })
         appendFileSync(this.file, `${JSON.stringify(record)}\n`, { mode: 0o600 })
         this.exported.add(ticket.id)
