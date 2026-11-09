@@ -31,6 +31,9 @@ Each command accepts `--cases`, `--decisions`, `--db`, `--out`, `--sessions`, an
 `export-cases.mjs` also reads each worker transcript to digest a case's trace. The
 session store is `<DSH_HOME>/sessions`; transcripts are a sequence of zstd frames,
 so the reader walks every frame instead of decompressing only the first.
+`analyze-cases.mjs` also normalizes repeated failures into candidates; it does not write
+a rule. A human supplies the cause, probe and disposition, cites at least three cases,
+and writes the reviewed line into the worker-only `playbook` prompt section.
 
 ## The gate
 

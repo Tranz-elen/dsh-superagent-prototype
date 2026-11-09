@@ -291,7 +291,7 @@ function normalize(config: unknown): PromptConfig {
     skills: Object.fromEntries(Object.entries(legacy.data.guides).filter(([name]) => !LEGACY_FIXED.has(name)).map(([name, body]) => [name, legacyText(body)])) }
     : PromptConfigSchema.parse(config)
   return { communication: currentNames(current.communication), scope: currentNames(current.scope), delivery: currentNames(current.delivery),
-    skills: Object.fromEntries(Object.entries(current.skills).map(([name, body]) => [name, currentNames(body)])) }
+    playbook: currentNames(current.playbook ?? ''), skills: Object.fromEntries(Object.entries(current.skills).map(([name, body]) => [name, currentNames(body)])) }
 }
 /**
  * Normalize stored prompt revisions to current sections and names (recording original configs under `legacy` when saved

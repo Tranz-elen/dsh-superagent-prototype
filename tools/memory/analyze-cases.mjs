@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { zstdDecompressSync } from 'node:zlib'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { hasAbilityVerdict, normalizeFailureSignature } from './failure-signatures.mjs'
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -113,7 +114,10 @@ function digest(events) {
     if (call.name === 'bash') bash.push({ command: (call.args.command ?? '').trim().split('\n')[0], exit: exit ? Number(exit[1]) : 0 })
     if (call.name === 'write' || call.name === 'edit') edits.add(call.args.file_path)
     if (call.name === 'read' || call.name === 'grep' || call.name === 'glob') reads.add(call.args.file_path ?? call.args.path ?? call.args.pattern)
-    if (failed) failures.push({ tool: call.name, detail: (exit ? `exit ${exit[1]}` : 'error') + ' :: ' + text.slice(0, 160).replace(/\s+/g, ' ') })
+    if (failed) {
+      const detail = text.replace(/\s+/g, ' ').trim().slice(0, 240)
+      failures.push({ tool: call.name, detail, signature: normalizeFailureSignature(call.name, text), quarantined: hasAbilityVerdict(text) })
+    }
   }
   return { steps, tools, bash, edits: [...edits], reads: [...reads].filter(Boolean), failures }
 }
@@ -130,8 +134,19 @@ const failedBash = allBash.filter(b => b.exit !== 0)
 const bashCount = count(allBash, b => b.command)
 const repeatedBash = Object.entries(bashCount).filter(([, n]) => n >= 2)
 const allFailures = cases.flatMap(c => c.trace.failures)
-const failureCount = count(allFailures, f => f.detail.slice(0, 80))
+const quarantinedFailures = allFailures.filter(f => f.quarantined)
+const cleanFailures = allFailures.filter(f => !f.quarantined)
+const failureCount = count(cleanFailures, f => f.signature)
 const repeatedFailures = Object.entries(failureCount).filter(([, n]) => n >= 2)
+const failureEvidence = new Map()
+for (const c of cases) {
+  for (const f of c.trace.failures) {
+    if (f.quarantined) continue
+    if (!failureEvidence.has(f.signature)) failureEvidence.set(f.signature, { cases: new Set(), outcomes: new Set(), symptom: f.detail })
+    failureEvidence.get(f.signature).cases.add(c.id)
+    failureEvidence.get(f.signature).outcomes.add(c.outcome)
+  }
+}
 const reasonCount = count(cases.flatMap(c => c.decision?.reasons ?? []), r => r)
 const reportStates = count(cases.flatMap(c => c.reports), r => r.state)
 
@@ -162,9 +177,18 @@ lines.push(`- retries: ${cases.reduce((n, c) => n + c.cost.retries, 0)}, attenti
 lines.push('## 3. Repetition (the only thing rules can come from)', '')
 lines.push(`- signatures (intent|outcome) with n>=2: ${repeatedSignatures.length ? JSON.stringify(repeatedSignatures) : 'none'}`)
 lines.push(`- bash commands run more than once: ${repeatedBash.length ? JSON.stringify(repeatedBash) : 'none'}`)
-lines.push(`- failed commands seen more than once: ${repeatedFailures.length ? JSON.stringify(repeatedFailures) : 'none'}`)
+lines.push(`- repeated failure signatures: ${repeatedFailures.length ? JSON.stringify(repeatedFailures) : 'none'}`)
+lines.push(`- quarantined failures with an ability verdict: ${quarantinedFailures.length}`)
 lines.push(`- outcome spread: ${outcomeSpread} kinds`, '')
-lines.push('### Trace digests', '')
+lines.push('### Failure lesson candidates (review before use)', '')
+if (repeatedFailures.length === 0) lines.push('- none; a single failure is not a lesson.', '')
+for (const [signature, n] of repeatedFailures) {
+  const evidence = failureEvidence.get(signature)
+  lines.push(`- \`${signature}\` ×${n}; cases: ${[...evidence.cases].join(', ')}; outcomes: ${[...evidence.outcomes].join(', ')}`)
+  lines.push(`  - symptom: ${evidence.symptom}`)
+  lines.push('  - needs a human-written possible cause, a cheapest falsifying probe, and an action; this is not a rule yet.')
+}
+lines.push('', '### Trace digests', '')
 for (const c of cases) {
   lines.push(`**${c.id.slice(0, 8)} — ${c.title}** (${c.outcome})`, '')
   lines.push(`- steps ${c.trace.steps}, tools ${JSON.stringify(c.trace.tools)}`)

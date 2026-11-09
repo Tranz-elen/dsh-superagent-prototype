@@ -45,10 +45,10 @@ it('saves team sections and skills as versions that survive a restart, with hist
 })
 
 it('assembles every role from fixed sections around the team sections, whatever the configuration says', () => {
-  const config = { communication: 'Say little.', scope: '', delivery: 'Attach screenshots.', skills: {} }
+  const config = { communication: 'Say little.', scope: '', delivery: 'Attach screenshots.', playbook: 'When a build fails twice, ask first.', skills: {} }
   for (const role of ['orchestrator', 'worker'] as const) {
     const names = promptParts(config, role, 'env').map(part => part.name)
-    expect(names).toEqual(['runtime/shared', `runtime/${role}`, 'communication', 'delivery', 'runtime/subscriptions', 'runtime/replies', role === 'orchestrator' ? 'runtime/dispatch' : 'runtime/work', ...role === 'orchestrator' ? ['runtime/admission'] : [], 'runtime/handoff', 'runtime/environment'])
+    expect(names).toEqual(['runtime/shared', `runtime/${role}`, 'communication', 'delivery', ...role === 'worker' ? ['playbook'] : [], 'runtime/subscriptions', 'runtime/replies', role === 'orchestrator' ? 'runtime/dispatch' : 'runtime/work', ...role === 'orchestrator' ? ['runtime/admission'] : [], 'runtime/handoff', 'runtime/environment'])
     const prompt = composePrompt(config, role)
     for (const fixed of [sharedPrompt, role === 'orchestrator' ? masterPrompt : workerPrompt, guides.subscriptions!, guides.replies!, handoffPolicy(role)]) expect(prompt).toContain(fixed)
     expect(prompt.endsWith(handoffPolicy(role))).toBe(true)
@@ -252,4 +252,13 @@ describe('overrides of built-in parts', () => {
         + `The prepare command of a ticket directory reads the same variables:\n${ENVIRONMENT_LINE}`)
     })
   })
+})
+
+
+it('adds a reviewed failure playbook to the worker prompt only', () => {
+  const config = { ...defaultPrompts(), playbook: 'When a build fails twice with exit code 1, ask before retrying.' }
+  expect(composePrompt(config, 'worker')).toContain('## Failure playbook\nWhen a build fails twice with exit code 1, ask before retrying.')
+  expect(composePrompt(config, 'orchestrator')).not.toContain('## Failure playbook')
+  expect(promptParts(config, 'worker').map(part => part.name)).toContain('playbook')
+  expect(promptParts(config, 'orchestrator').map(part => part.name)).not.toContain('playbook')
 })

@@ -11,10 +11,11 @@ import { Versions } from './versions.ts'
 import { KV } from '../kv.ts'
 
 /** Prompt sections the team writes; the built-in parts follow dsh-superagent's text until the team overrides them. */
-export const TEAM_SECTIONS = ['communication', 'scope', 'delivery'] as const
+export const TEAM_SECTIONS = ['communication', 'scope', 'delivery', 'playbook'] as const
 export type TeamSection = typeof TEAM_SECTIONS[number]
 /** Markdown headings for each team section; fixed prompt sections refer to them by these exact names. */
-const TEAM_HEADINGS: Record<TeamSection, string> = { communication: 'Communication', scope: 'Ticket scope', delivery: 'Delivery requirements' }
+const TEAM_HEADINGS: Record<TeamSection, string> = { communication: 'Communication', scope: 'Ticket scope', delivery: 'Delivery requirements',
+  playbook: 'Failure playbook' }
 export const SKILL_NAME = /^[a-z][a-z0-9-]*$/
 /** Prefix prepended to skill names when registering them in DSH Sessions. */
 export const SKILL_PREFIX = 'dsh-superagent-'
@@ -32,7 +33,7 @@ const OverrideSchema = z.object({ text: z.string(),
  * A configuration, whose overrides may name a part a later version no longer has, which `Prompts.validate` drops when the
  * saved version holds it and refuses otherwise.
  */
-export const PromptConfigSchema = z.object({ communication: z.string(), scope: z.string(), delivery: z.string(),
+export const PromptConfigSchema = z.object({ communication: z.string(), scope: z.string(), delivery: z.string(), playbook: z.string().default(''),
   skills: z.record(SkillNameSchema, z.string()), overrides: z.record(z.string(), OverrideSchema).optional()
     .describe('Text in place of a built-in part, by its key in prompts/defaults; a part not named follows its built-in text.') }).strict()
 export type PromptConfig = z.infer<typeof PromptConfigSchema>
@@ -106,7 +107,7 @@ export function promptParts(config: PromptConfig, role: Role, environment?: stri
     text: config[name] ? `## ${TEAM_HEADINGS[name]}\n${config[name]}` : '' })
   return [
     fixed('runtime/shared'), fixed(`runtime/${role}`),
-    ...TEAM_SECTIONS.map(team),
+    ...TEAM_SECTIONS.filter(name => name !== 'playbook' || role === 'worker').map(team),
     ...['subscriptions', 'replies', role === 'orchestrator' ? 'dispatch' : 'work'].map(name => fixed(`runtime/${name}`)),
     ...role === 'orchestrator' ? [fixed('runtime/admission')] : [],
     fixed('runtime/handoff', `runtime/handoff/${role}`),
@@ -223,7 +224,7 @@ export class Prompts {
       // Pre-team-section revisions are not comparable field-by-field.
       const legacy = version.legacy || (version.previousRevision !== null && this.versions.get(version.previousRevision)?.legacy)
       if (legacy) return { ...summary, changed: ['legacy'] }
-      const entries = (value: PromptConfig) => ({ communication: value.communication, scope: value.scope, delivery: value.delivery,
+      const entries = (value: PromptConfig) => ({ communication: value.communication, scope: value.scope, delivery: value.delivery, playbook: value.playbook,
         ...Object.fromEntries(Object.entries(value.skills).map(([name, text]) => ['skill/' + name, text])),
         // An override changes with its text or with the built-in text it was edited from.
         ...Object.fromEntries(Object.entries(value.overrides ?? {}).map(([part, override]) => [part, JSON.stringify(override)])) })

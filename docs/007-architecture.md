@@ -439,6 +439,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/store.spec.ts` | Repositories and their working sets, in SQLite as in memory, the kv area, with every key of `KV` spelled only in `src/kv.ts` and the migration, settings history and queries |
 | `tests/case-export.spec.ts` | Case export: one line per ended Ticket, written once across restarts and catch-up |
 | `tests/memory-tools.spec.ts` | The memory pipeline tools: a fixture corpus through analyze and the distill gate, and a fixture store through the decision export |
+| `tests/failure-signatures.spec.ts` | Offline failure signatures: paths/timestamps stripped, DNS and deliberate exit 1 separated, ability verdicts rejected |
 | `tests/workspace-tools.spec.ts` | Workspace tools: snapshot, diff, apply, conflict refusal and deletion refusal |
 | `tests/prompts.spec.ts` | Prompt validation, assembly and versions |
 | `tests/cards.spec.ts` | The rules the built-in text must state, file by file |
