@@ -445,6 +445,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/failure-candidates.spec.ts` | Structured failure candidates: evidence grouping, ability-verdict quarantine, bounded playbook validation |
 | `tests/memory-watch.spec.ts` | Real-ticket watch: A/B exclusion and a high-water mark for new ended cases |
 | `tests/memory-pipeline.spec.ts` | End-to-end offline memory: session trace → failure candidates → distill review artifact |
+| `tests/compare-prompt-revisions.spec.ts` | Pinned ON/OFF prompt groups, descriptive metrics, A/B exclusion and small-sample marking |
 | `tests/rules.spec.ts` | Reviewed playbook rules: at least three known cases, no ability verdict, an action and a check |
 | `tests/prompt-experiment.spec.ts` | Deterministic ON/OFF prompt-revision assignment, bounded to two existing revisions |
 | `tests/workspace-tools.spec.ts` | Workspace tools: snapshot, diff, apply, conflict refusal and deletion refusal |

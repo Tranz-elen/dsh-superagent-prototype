@@ -39,3 +39,15 @@ Keep revision 5 while the real tickets do not regress. If a real ticket shows a 
 - Local corrected A/B: `AB-RESULT-2026-11-09.md`
 - Live state: `/root/.dsh/state/superagent/orchestrator.sqlite`
 - Real cases: `/root/.dsh/state/superagent/cases.jsonl`
+
+## Experiment live
+
+- `executor.promptExperiment` is enabled with revisions `[5, 4]`; assignment is deterministic by ticket id.
+- Every new ticket's `promptRevision` is exported in `cases.jsonl`.
+- Compare groups with:
+
+```sh
+node tools/memory/compare-prompt-revisions.mjs --on 5 --off 4 --since 2026-11-09T12:00:00Z
+```
+
+The report is descriptive; it marks groups under 5 cases as insufficient and does not claim causality.
