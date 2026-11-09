@@ -4,6 +4,7 @@ export interface FailureCandidate {
   cases: string[]
   outcomes: string[]
   symptom: string
+  suggestedScope: 'worker' | 'orchestrator' | 'environment'
   needs: string
 }
 export function buildFailureCandidates(cases: readonly unknown[], options?: { minCount?: number }): {

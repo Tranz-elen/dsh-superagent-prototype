@@ -10,6 +10,13 @@ import { hasAbilityVerdict } from './failure-signatures.mjs'
 export const FAILURE_MIN_CASES = 2
 export const PLAYBOOK_MAX_BYTES = 2 * 1024
 
+/** Suggested owner of a candidate; a reviewer decides, this is not automatic disposition. */
+function suggestedScope(tool, symptom) {
+  if (/^orchestrator/i.test(tool ?? '')) return 'orchestrator'
+  if (/permission|forbidden|rate limit|could not resolve|dns|network|proxy|auth|404/i.test(symptom ?? '')) return 'environment'
+  return 'worker'
+}
+
 /** Build repeated-failure candidates from analyzed cases (each with trace.failures). */
 export function buildFailureCandidates(cases, options = {}) {
   const minCount = options.minCount ?? FAILURE_MIN_CASES
@@ -21,7 +28,8 @@ export function buildFailureCandidates(cases, options = {}) {
       if (f.quarantined || hasAbilityVerdict(f.detail)) { quarantined += 1; continue }
       if (!f.signature) continue
       failures += 1
-      const entry = bySignature.get(f.signature) ?? { signature: f.signature, count: 0, cases: new Set(), outcomes: new Set(), symptom: f.detail }
+      const entry = bySignature.get(f.signature) ?? { signature: f.signature, count: 0, cases: new Set(), outcomes: new Set(), symptom: f.detail,
+        scope: suggestedScope(f.tool, f.detail) }
       entry.count += 1
       entry.cases.add(c.id)
       entry.outcomes.add(c.outcome)
@@ -38,6 +46,7 @@ export function buildFailureCandidates(cases, options = {}) {
       cases: [...entry.cases],
       outcomes: [...entry.outcomes],
       symptom: entry.symptom,
+      suggestedScope: entry.scope,
       needs: 'a human-written possible cause, a cheapest falsifying probe, and an action',
     }))
   return { candidates, quarantined, failures, minCount }

@@ -178,7 +178,8 @@ lines.push('### Failure lesson candidates (review before use)', '')
 if (repeatedFailures.length === 0) lines.push('- none; a single failure is not a lesson.', '')
 for (const [signature, n] of repeatedFailures) {
   const evidence = failureEvidence.get(signature)
-  lines.push(`- \`${signature}\` ×${n}; cases: ${[...evidence.cases].join(', ')}; outcomes: ${[...evidence.outcomes].join(', ')}`)
+  const candidate = failureResult.candidates.find(item => item.signature === signature)
+  lines.push(`- \`${signature}\` ×${n}; scope=${candidate?.suggestedScope ?? 'worker'}; cases: ${[...evidence.cases].join(', ')}; outcomes: ${[...evidence.outcomes].join(', ')}`)
   lines.push(`  - symptom: ${evidence.symptom}`)
   lines.push('  - needs a human-written possible cause, a cheapest falsifying probe, and an action; this is not a rule yet.')
 }
