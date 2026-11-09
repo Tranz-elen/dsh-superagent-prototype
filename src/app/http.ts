@@ -194,9 +194,9 @@ function routes(runtime: HttpHost): Routes {
     'POST sources/:id/labels': ({ params }) => runtime.settings.refreshLabels(params.id),
     // An operator request typed into the panel or sent by a local client; it enters the same pipeline as a Source message.
     'POST requests': async ({ body }) => {
-      const request = z.object({ text: z.string().trim().min(1).max(20_000), workspace: z.string().trim().min(1).max(64).optional() })
-        .parse(await body(24_000))
-      const received = runtime.receive(localTrigger(request.text, undefined, request.workspace))
+      const request = z.object({ text: z.string().trim().min(1).max(20_000), workspace: z.string().trim().min(1).max(64).optional(),
+        promptRevision: z.number().int().nonnegative().optional() }).parse(await body(24_000))
+      const received = runtime.receive(localTrigger(request.text, undefined, request.workspace, request.promptRevision))
       runtime.requestPass()
       return { received }
     },

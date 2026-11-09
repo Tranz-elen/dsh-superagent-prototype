@@ -251,7 +251,7 @@ export class Sessions {
     const skillScope = agent.ctx.inject(['skills'], scope => {
       binding.scope = scope
       binding.skills = undefined
-      this.bindSkills(binding, host.prompts.current())
+      this.bindSkills(binding, this.promptFor(agent, false))
     })
     binding.disposers.push(() => { skillScope.dispose().catch((error: unknown) => { this.ctx.logger.warn('dsh-superagent could not release a skill scope: %s', String(error)) }) })
     await skillScope
@@ -334,7 +334,11 @@ export class Sessions {
   }
   /** Return the current prompt version, updating the agent's skills and recording the revision in Store when bound to a model request. */
   private promptFor(agent: Agent, bind: boolean): PromptVersion {
-    const version = this.host.prompts.current()
+    const pinned = this.ticketOf(agent)?.promptRevision
+    let version = this.host.prompts.current()
+    if (pinned !== undefined) {
+      try { version = this.host.prompts.version(pinned) } catch { /* A deleted pin falls back to current. */ }
+    }
     if (!bind) return version
     const binding = this.bindings.get(agent)
     if (binding) this.bindSkills(binding, version)

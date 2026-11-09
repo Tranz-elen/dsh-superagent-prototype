@@ -328,6 +328,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/settings.ts` | Settings |
 | `src/app/settings-history.ts` | `policyHistory`: each saved settings revision with what it changed from the one before |
 | `src/app/playbook.ts` | Failure playbook validation: bounded text, no ability verdict, at least one executable action |
+| `src/app/prompt-experiment.ts` | Deterministic ON/OFF prompt-revision assignment for a ticket cohort |
 | `src/app/prompts.ts` | Prompts, `builtInParts`, the built-in parts a team may override, and `promptParts`, the order of a role's prompt sections |
 | `src/app/context.ts` | The built-in prompt text, read from `prompts/`, and the transcript entries Sessions read |
 | `src/app/skill-files.ts` | Packaged text: `promptFile`, which joins a file's one-sentence lines into paragraphs, and the bundled skills |
@@ -445,6 +446,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/memory-watch.spec.ts` | Real-ticket watch: A/B exclusion and a high-water mark for new ended cases |
 | `tests/memory-pipeline.spec.ts` | End-to-end offline memory: session trace → failure candidates → distill review artifact |
 | `tests/rules.spec.ts` | Reviewed playbook rules: at least three known cases, no ability verdict, an action and a check |
+| `tests/prompt-experiment.spec.ts` | Deterministic ON/OFF prompt-revision assignment, bounded to two existing revisions |
 | `tests/workspace-tools.spec.ts` | Workspace tools: snapshot, diff, apply, conflict refusal and deletion refusal |
 | `tests/prompts.spec.ts` | Prompt validation, assembly and versions |
 | `tests/cards.spec.ts` | The rules the built-in text must state, file by file |
