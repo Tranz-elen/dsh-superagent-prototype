@@ -26,7 +26,7 @@ pnpm memory:distill     # gate + clusters + prompt.md + failure-candidates.json 
 node tools/memory/watch-real-tickets.mjs  # one-shot: new real cases since the high-water mark → report
 node tools/memory/watch-real-tickets.mjs --watch  # watch cases.jsonl and analyze when a real case ends
 node tools/memory/check-rules.mjs        # validate reviewed rules against cases.jsonl
-node tools/memory/compare-prompt-revisions.mjs --on 5 --off 4  # descriptive ON/OFF metrics
+node tools/memory/compare-prompt-revisions.mjs --on 5 --off 4  # GitHub cohort, excludes local test tickets by default
 ```
 
 Each command accepts `--cases`, `--decisions`, `--db`, `--out`, `--sessions`, and

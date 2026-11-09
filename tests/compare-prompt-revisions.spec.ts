@@ -14,10 +14,13 @@ describe('prompt revision comparison', () => {
       row('off1', 4, 15, 2), row('off2', 4, 20, 2),
       { ...row('ab', 5, 1, 0), title: 'docs: A/B ON 1' },
       { ...row('none', 0, 1, 0), promptRevision: undefined },
+      { ...row('local', 5, 1, 0), source: 'local' },
     ], { on: 5, off: 4 })
     expect(result.groups[0]).toMatchObject({ label: 'ON', n: 2, meanSteps: 9 })
     expect(result.groups[1]).toMatchObject({ label: 'OFF', n: 2, meanSteps: 17.5 })
     expect(result.totalPinned).toBe(4)
+    const local = summarizePromptRevisions([{ ...row('local', 5, 1, 0), source: 'local' }], { on: 5, off: 4, includeLocal: true })
+    expect(local.totalPinned).toBe(1)
   })
 
   it('marks a group below five cases insufficient', () => {

@@ -5,7 +5,7 @@
  * reports counts. It does not run a significance test or claim causality; small
  * groups are explicitly marked insufficient.
  *
- * Usage: node compare-prompt-revisions.mjs [--cases ...] [--sessions ...] [--since ISO] [--on 5] [--off 4] [--json]
+ * Usage: node compare-prompt-revisions.mjs [--cases ...] [--sessions ...] [--since ISO] [--on 5] [--off 4] [--include-local] [--json]
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -26,6 +26,7 @@ const ON = Number(arg('on', '5'))
 const OFF = Number(arg('off', '4'))
 const OUT = arg('out', '')
 const AS_JSON = args.includes('--json')
+const INCLUDE_LOCAL = args.includes('--include-local')
 
 const mean = values => values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : null
 const summarize = (rows, label) => ({
@@ -47,6 +48,7 @@ export function summarizePromptRevisions(cases, options = {}) {
   const since = options.since ? Date.parse(options.since) : undefined
   const rows = cases.filter(c => typeof c.promptRevision === 'number'
     && !String(c.title ?? '').includes('A/B')
+    && (options.includeLocal === true || c.source !== 'local')
     && (!since || (c.endedAt && Date.parse(c.endedAt) >= since)))
   for (const row of rows) if (!row.trace) row.trace = digestCase(row, options.sessionsRoot ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'sessions'))
   const groups = [summarize(rows.filter(c => c.promptRevision === on), 'ON'), summarize(rows.filter(c => c.promptRevision === off), 'OFF')]
@@ -54,7 +56,7 @@ export function summarizePromptRevisions(cases, options = {}) {
 }
 
 const cases = readFileSync(CASES, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-const result = summarizePromptRevisions(cases, { on: ON, off: OFF, since: SINCE || undefined, sessionsRoot: SESSIONS })
+const result = summarizePromptRevisions(cases, { on: ON, off: OFF, since: SINCE || undefined, sessionsRoot: SESSIONS, includeLocal: INCLUDE_LOCAL })
 if (AS_JSON) {
   const text = `${JSON.stringify(result, null, 2)}\n`
   if (OUT) writeFileSync(OUT, text)

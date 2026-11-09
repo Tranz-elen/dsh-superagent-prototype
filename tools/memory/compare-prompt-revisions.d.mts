@@ -11,7 +11,7 @@ export interface PromptRevisionGroup {
   blockedReports: number
   insufficient: boolean
 }
-export function summarizePromptRevisions(cases: readonly Record<string, unknown>[], options?: { on?: number; off?: number; since?: string; sessionsRoot?: string }): {
+export function summarizePromptRevisions(cases: readonly Record<string, unknown>[], options?: { on?: number; off?: number; since?: string; sessionsRoot?: string; includeLocal?: boolean }): {
   on: number
   off: number
   since: string | null
