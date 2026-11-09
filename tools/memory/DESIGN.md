@@ -2,10 +2,11 @@
 
 [中文](DESIGN.zh.md) | English
 
-Status: the offline pipeline now produces repeated-failure candidates and the worker
-playbook section exists. No failure rule has been reviewed into a real deployment yet,
-and there is no A/B evidence; the 20-case corpus produced three conventional rules
-(docs/test/refactor), not worth injecting on their own.
+Status: the offline pipeline produces repeated-failure candidates and the worker
+playbook section exists. The first local 5+5 A/B (2026-11-09) showed no improvement and
+more failed bash in the ON arm; the rule was not kept. Current prompt revision 2 has an
+empty playbook. See `AB-RESULT-2026-11-09.md`; the 20-case corpus produced three
+conventional rules (docs/test/refactor), not worth injecting on their own.
 
 ## Goal
 
