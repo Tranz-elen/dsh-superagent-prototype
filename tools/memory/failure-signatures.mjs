@@ -8,7 +8,7 @@
  * pseudo-lesson; the pipeline records a symptom to investigate instead.
  */
 
-const ABILITY_VERDICT = /不可用|不靠谱|别用|坏了|无法使用|不能用|不能使用/
+const ABILITY_VERDICT = /不可用|不靠谱|别用|坏了|无法使用|不能用|不能使用|\b(?:tool|command|plugin|script)\s+(?:is\s+)?(?:unusable|unreliable|broken)\b|\b(?:do not|don't)\s+use\s+(?:the\s+)?(?:tool|command)\b/i
 
 /** True when text makes a verdict about a tool's ability rather than naming a symptom. */
 export function hasAbilityVerdict(text) {

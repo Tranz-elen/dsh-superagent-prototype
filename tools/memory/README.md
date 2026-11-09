@@ -21,8 +21,8 @@ Defaults: `stateDir = $DSH_SUPERAGENT_STATE_DIR ?? ~/.dsh/state/superagent`;
 ```sh
 pnpm memory:export      # store → <stateDir>/cases.jsonl   (offline catch-up / inspection)
 pnpm memory:decisions   # store → <stateDir>/decisions.jsonl
-pnpm memory:analyze     # cases (+ decisions) → report.md
-pnpm memory:distill     # gate + clusters + prompt.md → dist/
+pnpm memory:analyze     # cases (+ decisions) → report.md + failure-candidates.json
+pnpm memory:distill     # gate + clusters + prompt.md + failure-candidates.json → dist/
 ```
 
 Each command accepts `--cases`, `--decisions`, `--db`, `--out`, `--sessions`, and

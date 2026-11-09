@@ -10,8 +10,9 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { zstdDecompressSync } from 'node:zlib'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { hasAbilityVerdict, normalizeFailureSignature } from './failure-signatures.mjs'
+import { buildFailureCandidates, failureCandidatesDocument } from './failure-candidates.mjs'
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -22,6 +23,7 @@ const STATE = process.env.DSH_SUPERAGENT_STATE_DIR ?? join(homedir(), '.dsh', 's
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const CASES = arg('cases', join(STATE, 'cases.jsonl'))
 const OUT = arg('out', 'report.md')
+const FAILURES = arg('failures', join(dirname(OUT), 'failure-candidates.json'))
 const SESSIONS = arg('sessions', join(DSH_HOME, 'sessions'))
 
 function intentOf(title, text, files) {
@@ -133,20 +135,12 @@ const allBash = cases.flatMap(c => c.trace.bash)
 const failedBash = allBash.filter(b => b.exit !== 0)
 const bashCount = count(allBash, b => b.command)
 const repeatedBash = Object.entries(bashCount).filter(([, n]) => n >= 2)
-const allFailures = cases.flatMap(c => c.trace.failures)
-const quarantinedFailures = allFailures.filter(f => f.quarantined)
-const cleanFailures = allFailures.filter(f => !f.quarantined)
-const failureCount = count(cleanFailures, f => f.signature)
-const repeatedFailures = Object.entries(failureCount).filter(([, n]) => n >= 2)
-const failureEvidence = new Map()
-for (const c of cases) {
-  for (const f of c.trace.failures) {
-    if (f.quarantined) continue
-    if (!failureEvidence.has(f.signature)) failureEvidence.set(f.signature, { cases: new Set(), outcomes: new Set(), symptom: f.detail })
-    failureEvidence.get(f.signature).cases.add(c.id)
-    failureEvidence.get(f.signature).outcomes.add(c.outcome)
-  }
-}
+const failureResult = buildFailureCandidates(cases)
+const repeatedFailures = failureResult.candidates.map(candidate => [candidate.signature, candidate.count])
+const quarantinedFailures = failureResult.quarantined
+const failureEvidence = new Map(failureResult.candidates.map(candidate => [candidate.signature, {
+  cases: new Set(candidate.cases), outcomes: new Set(candidate.outcomes), symptom: candidate.symptom,
+}]))
 const reasonCount = count(cases.flatMap(c => c.decision?.reasons ?? []), r => r)
 const reportStates = count(cases.flatMap(c => c.reports), r => r.state)
 
@@ -178,7 +172,7 @@ lines.push('## 3. Repetition (the only thing rules can come from)', '')
 lines.push(`- signatures (intent|outcome) with n>=2: ${repeatedSignatures.length ? JSON.stringify(repeatedSignatures) : 'none'}`)
 lines.push(`- bash commands run more than once: ${repeatedBash.length ? JSON.stringify(repeatedBash) : 'none'}`)
 lines.push(`- repeated failure signatures: ${repeatedFailures.length ? JSON.stringify(repeatedFailures) : 'none'}`)
-lines.push(`- quarantined failures with an ability verdict: ${quarantinedFailures.length}`)
+lines.push(`- quarantined failures with an ability verdict: ${quarantinedFailures}`)
 lines.push(`- outcome spread: ${outcomeSpread} kinds`, '')
 lines.push('### Failure lesson candidates (review before use)', '')
 if (repeatedFailures.length === 0) lines.push('- none; a single failure is not a lesson.', '')
@@ -217,6 +211,8 @@ lines.push('')
 lines.push(`**verdict: ${sufficient ? 'enough for a first distillation pass' : 'NOT enough — do not distill rules yet'}**`)
 lines.push('')
 writeFileSync(OUT, lines.join('\n') + '\n')
+writeFileSync(FAILURES, `${JSON.stringify(failureCandidatesDocument(failureResult, { cases: cases.length }), null, 2)}\n`)
 console.log(`wrote ${OUT}`)
 console.log(`cases=${cases.length} repeatedSignatures=${repeatedSignatures.length} repeatedFailures=${repeatedFailures.length} sufficient=${sufficient}`)
+console.log(`failure candidates: ${FAILURES} (${failureResult.candidates.length})`)
 for (const c of cases) console.log(`- ${c.id.slice(0, 8)} ${c.outcome} steps=${c.trace.steps} bash=${c.trace.bash.length} failedBash=${c.trace.bash.filter(b => b.exit !== 0).length} tools=${Object.keys(c.trace.tools).join(',')}`)

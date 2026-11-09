@@ -13,9 +13,10 @@
  *
  * Usage: node distill.mjs [--cases cases.jsonl] [--out dist] [--min-cases 20]
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { validateFailureCandidate } from './failure-candidates.mjs'
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -25,6 +26,7 @@ const arg = (name, fallback) => {
 const STATE = process.env.DSH_SUPERAGENT_STATE_DIR ?? join(homedir(), '.dsh', 'state', 'superagent')
 const CASES = arg('cases', join(STATE, 'cases.jsonl'))
 const OUT = arg('out', 'dist')
+const FAILURES = arg('failures', 'failure-candidates.json')
 const MIN_CASES = Number(arg('min-cases', '20'))
 
 function intentOf(title, text, files) {
@@ -58,6 +60,18 @@ const reasons = cases.reduce((map, c) => {
   for (const code of c.decision?.reasons ?? []) map[code] = (map[code] ?? 0) + 1
   return map
 }, {})
+let failureCandidates = []
+let invalidFailureCandidates = 0
+if (existsSync(FAILURES)) {
+  try {
+    const parsed = JSON.parse(readFileSync(FAILURES, 'utf8'))
+    for (const candidate of parsed.candidates ?? []) {
+      const errors = validateFailureCandidate(candidate)
+      if (errors.length) { invalidFailureCandidates += 1; continue }
+      failureCandidates.push(candidate)
+    }
+  } catch { invalidFailureCandidates += 1 }
+}
 
 mkdirSync(OUT, { recursive: true })
 const failures = []
@@ -87,18 +101,20 @@ if (failures.length) {
     }))
   }
   writeFileSync(join(OUT, 'clusters.json'), `${JSON.stringify({ generatedAt: new Date().toISOString(), cases: cases.length, bySignature }, null, 2)}\n`)
-  writeFileSync(join(OUT, 'prompt.md'), prompt(bySignature, reasons))
+  writeFileSync(join(OUT, 'prompt.md'), prompt(bySignature, reasons, failureCandidates))
+  writeFileSync(join(OUT, 'failure-candidates.json'), `${JSON.stringify({ generatedAt: new Date().toISOString(), candidates: failureCandidates, invalid: invalidFailureCandidates }, null, 2)}\n`)
   writeFileSync(join(OUT, 'status.md'), [
     '# Distillation gate: open', '', `- cases: ${cases.length}`,
     `- clusters with n>=3: ${clusters.length}`, `- outcomes: ${outcomeSpread}`,
-    `- reasons: ${JSON.stringify(reasons)}`, '',
+    `- reasons: ${JSON.stringify(reasons)}`,
+    `- failure candidates: ${failureCandidates.length} (invalid ${invalidFailureCandidates})`, '',
     'Next: run `prompt.md` over `clusters.json`, then review every rule against its evidence before it reaches a prompt section.', '',
   ].join('\n'))
   console.log(`gate open: ${clusters.length} clusters over ${cases.length} cases -> ${OUT}`)
 }
 
 /** The extraction contract: rules only from repeated, outcome-backed evidence, always cited. */
-function prompt(bySignature, reasons) {
+function prompt(bySignature, reasons, failureCandidates = []) {
   return `# Rule extraction
 
 You are distilling a repository playbook from superagent tickets. Read the clusters below and propose rules.
@@ -130,6 +146,12 @@ JSON only:
 ## Signals
 
 Decision reasons across the corpus: ${JSON.stringify(reasons)}
+
+## Failure candidates (evidence only)
+
+These are repeated failures, not rules. Do not turn one into a rule unless the evidence needs a possible cause, a cheapest falsifying probe and an action; cite at least three case ids.
+
+${JSON.stringify(failureCandidates, null, 2)}
 
 ## Clusters
 
