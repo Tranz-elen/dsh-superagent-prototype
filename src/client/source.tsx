@@ -1,8 +1,8 @@
 /** Source status view (health, filtered Triggers, dropped replies) and Source settings cards. */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type { FieldSpec } from '../sources/kind.ts'
 import { usePoll, type DroppedReply, type SourceStatusRow, type SourceView } from './api.ts'
-import { DisclosureRow, Dot, Icon, InfoTip, Switch, Tag } from './controls.tsx'
+import { Button, DisclosureRow, Dot, Icon, InfoTip, Switch, Tag } from './controls.tsx'
 import { SaveBar } from './draft.tsx'
 import { sourceMark } from './marks.ts'
 import { usePanel, usePanelData } from './provider.tsx'
@@ -58,10 +58,48 @@ function SourceCard({ source }: { source: SourceView }) {
   </form>
 }
 
+function LocalRequest() {
+  const { t, call, notify } = usePanel()
+  const { settings } = useSettings()
+  const workspaces = settings.blocks.executor.value.workspaces
+  const [text, setText] = useState('')
+  const [workspace, setWorkspace] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!text.trim()) return
+    setBusy(true)
+    try {
+      const result = await call('POST requests', { body: { text: text.trim(), ...(workspace ? { workspace } : {}) } })
+      setText('')
+      notify(t(result.received === 'stored' ? 'localRequestStored' : result.received === 'duplicate' ? 'localRequestDuplicate' : 'localRequestFiltered'))
+    } finally { setBusy(false) }
+  }
+  return <form className="dt-card" onSubmit={event => { void submit(event) }}>
+    <div className="dt-card-head"><div className="dt-row-main"><div className="dt-row-title">
+      <span className="dt-card-title">{t('localRequestTitle')}</span>
+      <InfoTip text={t('localRequestHint')} />
+    </div></div></div>
+    <div className="dt-field"><span className="dt-field-head">{t('localRequestText')}</span>
+      <textarea className="dt-textarea" rows={4} required maxLength={20_000} value={text}
+        placeholder={t('localRequestPlaceholder')} onChange={event => setText(event.target.value)} />
+    </div>
+    <div className="dt-field"><span className="dt-field-head">{t('localRequestWorkspace')}</span>
+      <select className="dt-select" value={workspace} onChange={event => setWorkspace(event.target.value)}>
+        <option value="">{t('localRequestNoWorkspace')}</option>
+        {workspaces.map(item => <option key={item.id} value={item.id}>{item.id} — {item.path}</option>)}
+      </select>
+      <span className="dt-hint">{workspace ? t('localRequestWorkspaceHint') : t('localRequestNoWorkspaceHint')}</span>
+    </div>
+    <div className="dt-row-buttons"><Button type="submit" variant="primary" disabled={busy || !text.trim()}>{t('localRequestSubmit')}</Button></div>
+  </form>
+}
+
 export function SourceSettings({ focus }: { focus?: string }) {
   const { sources } = useSettings().settings
   useEffect(() => { if (focus) document.getElementById(`dt-source-${focus}`)?.scrollIntoView?.({ block: 'start' }) }, [focus])
   return <div className="dt-form">
+    {sources.some(source => source.id === 'local') && <LocalRequest />}
     {sources.map(source => <SourceCard key={source.id} source={source} />)}
     <ConfigHistory blocks={['source:']} />
   </div>
