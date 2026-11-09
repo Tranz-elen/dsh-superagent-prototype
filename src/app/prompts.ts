@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import { UserError, key } from '../core/index.ts'
 import { policyVersion, type Settings, type SettingsOrigin } from '../policy.ts'
+import { validatePlaybook } from './playbook.ts'
 import { masterPrompt, workerPrompt, sharedPrompt, guides, mainAdmissionPolicy, handoffPolicy, teamDefaults, sourceSkills, cliNotes } from './context.ts'
 import { environmentLines, type Variable } from './execution-environment.ts'
 import { promptsNotice } from './notices.ts'
@@ -176,6 +177,7 @@ export class Prompts {
       return override.text === part.text ? [] : [[name, { text: override.text, base }] as const]
     })
     const result: PromptConfig = { ...config, ...kept.length ? { overrides: Object.fromEntries(kept) } : {} }
+    validatePlaybook(result.playbook)
     const limit = this.maxChars()
     if (JSON.stringify(result).length > limit) throw new UserError('promptTooLong', { limit: String(limit) })
     return result

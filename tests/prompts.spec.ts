@@ -262,3 +262,17 @@ it('adds a reviewed failure playbook to the worker prompt only', () => {
   expect(promptParts(config, 'worker').map(part => part.name)).toContain('playbook')
   expect(promptParts(config, 'orchestrator').map(part => part.name)).not.toContain('playbook')
 })
+
+
+it('rejects a playbook that makes an ability verdict, has no action, or is too large', () => {
+  withStore(store => {
+    const prompts = promptsOf(store)
+    expect(() => prompts.save({ ...defaultPrompts(), playbook: 'the tool is broken' }, 0, 'panel')).toThrow('Invalid failure playbook')
+    expect(() => prompts.save({ ...defaultPrompts(), playbook: 'Good builds are important.' }, 0, 'panel')).toThrow('no rule contains an executable action')
+    expect(() => prompts.save({ ...defaultPrompts(), playbook: '工具不可用，别用' }, 0, 'panel')).toThrow('ability verdict')
+    expect(() => prompts.save({ ...defaultPrompts(), playbook: 'read '.repeat(1000) }, 0, 'panel')).toThrow('exceeds 2048 bytes')
+    const saved = prompts.save({ ...defaultPrompts(), playbook: 'When edit reports file has not been read, read it and retry once.' }, 0, 'panel')
+    expect(saved.revision).toBe(1)
+    expect(composePrompt(prompts.current().config, 'worker')).toContain('## Failure playbook')
+  })
+})
