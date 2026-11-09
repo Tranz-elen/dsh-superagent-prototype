@@ -3,10 +3,11 @@
 [中文](DESIGN.zh.md) | English
 
 Status: the offline pipeline produces repeated-failure candidates and the worker
-playbook section exists. The first local 5+5 A/B (2026-11-09) showed no improvement and
-more failed bash in the ON arm; the rule was not kept. Current prompt revision 2 has an
-empty playbook. See `AB-RESULT-2026-11-09.md`; the 20-case corpus produced three
-conventional rules (docs/test/refactor), not worth injecting on their own.
+playbook section exists. The first local 5+5 A/B (2026-11-09) was a weak test (it told
+the worker to read first); a corrected direct-edit 5+5 run improved mean steps 15.0 -> 8.0
+and mean bash 10.8 -> 3.8 without worsening failed bash. The playbook is ON at prompt
+revision 5 for now; this is still a local-workspace test, not a real GitHub cohort. See
+`AB-RESULT-2026-11-09.md`.
 
 ## Goal
 
