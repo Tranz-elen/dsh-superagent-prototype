@@ -24,6 +24,7 @@ pnpm memory:decisions   # store → <stateDir>/decisions.jsonl
 pnpm memory:analyze     # cases (+ decisions) → report.md + failure-candidates.json
 pnpm memory:distill     # gate + clusters + prompt.md + failure-candidates.json → dist/
 node tools/memory/watch-real-tickets.mjs  # one-shot: new real cases since the high-water mark → report
+node tools/memory/check-rules.mjs        # validate reviewed rules against cases.jsonl
 ```
 
 Each command accepts `--cases`, `--decisions`, `--db`, `--out`, `--sessions`, and

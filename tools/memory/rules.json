@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "generatedAt": "2026-11-09T20:45:00.000Z",
+  "rules": [
+    {
+      "id": "edit-read-first",
+      "rule": "When edit or write reports \"file has not been read\", read that exact file and retry the same edit once; do not repeat it unchanged. Read a file before editing it when the directory is unfamiliar.",
+      "scope": { "roles": ["worker"], "intents": [], "areas": [] },
+      "evidence": [
+        "5dc08128c3d7d7e58ec6605c8feef0b5",
+        "9c10f0f66f89ccaeace960c1f2439fda",
+        "5b4abdf32369fa8e3b7e58a3dd361b57",
+        "8268aae7067c929fb44e1e6ab921f45d",
+        "afaf3f7aa317cba1b032745a89913218",
+        "b3161c8264898596cd0f67ed6f258f7d",
+        "61a95a0b29495f0ca7d88f142dab0e67"
+      ],
+      "check": "After the retry, confirm the edit succeeded and the file content contains the intended change.",
+      "confidence": "high",
+      "promptRevision": 5
+    }
+  ]
+}
