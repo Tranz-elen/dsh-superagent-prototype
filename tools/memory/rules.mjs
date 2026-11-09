@@ -29,6 +29,13 @@ export function validateRules(document, options = {}) {
       if (knownCases) for (const id of rule.evidence) if (!knownCases.has(id)) errors.push(`${where}.evidence references an unknown case: ${id}`)
     }
     if (!rule?.check || typeof rule.check !== 'string') errors.push(`${where}.check is required`)
+    for (const field of ['reviewAfter', 'expiresAt']) {
+      if (rule?.[field] === undefined) continue
+      const time = Date.parse(rule[field])
+      if (!Number.isFinite(time)) errors.push(`${where}.${field} must be an ISO date`)
+      else if (field === 'expiresAt' && time <= Date.now()) errors.push(`${where}.expiresAt is in the past`)
+      else if (field === 'reviewAfter' && time <= Date.now()) errors.push(`${where}.reviewAfter is overdue`)
+    }
     if (!CONFIDENCE.has(rule?.confidence)) errors.push(`${where}.confidence must be high or medium`)
     const roles = rule?.scope?.roles
     if (!Array.isArray(roles) || roles.length === 0) errors.push(`${where}.scope.roles needs at least one role`)

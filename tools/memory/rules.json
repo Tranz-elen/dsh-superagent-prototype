@@ -5,7 +5,13 @@
     {
       "id": "edit-read-first",
       "rule": "When edit or write reports \"file has not been read\", read that exact file and retry the same edit once; do not repeat it unchanged. Read a file before editing it when the directory is unfamiliar.",
-      "scope": { "roles": ["worker"], "intents": [], "areas": [] },
+      "scope": {
+        "roles": [
+          "worker"
+        ],
+        "intents": [],
+        "areas": []
+      },
       "evidence": [
         "5dc08128c3d7d7e58ec6605c8feef0b5",
         "9c10f0f66f89ccaeace960c1f2439fda",
@@ -17,7 +23,10 @@
       ],
       "check": "After the retry, confirm the edit succeeded and the file content contains the intended change.",
       "confidence": "high",
-      "promptRevision": 5
+      "promptRevision": 5,
+      "createdAt": "2026-11-09T20:45:00.000Z",
+      "reviewAfter": "2026-12-09T00:00:00.000Z",
+      "expiresAt": "2027-02-09T00:00:00.000Z"
     }
   ]
 }

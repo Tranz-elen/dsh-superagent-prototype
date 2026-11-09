@@ -8,6 +8,8 @@ const rule = {
   evidence: ['a', 'b', 'c'],
   check: 'Confirm the edit succeeded.',
   confidence: 'high',
+  reviewAfter: '2099-01-01T00:00:00.000Z',
+  expiresAt: '2099-02-01T00:00:00.000Z',
 }
 const doc = (overrides = {}) => ({ version: 1, rules: [{ ...rule, ...overrides }] })
 const knownCases = new Set(['a', 'b', 'c'])
@@ -21,6 +23,11 @@ describe('reviewed rules', () => {
     expect(validateRules(doc({ evidence: ['a', 'b'] }), { knownCases })).not.toEqual([])
     expect(validateRules(doc({ evidence: ['a', 'b', 'z'] }), { knownCases })).not.toEqual([])
     expect(validateRules({ version: 1, rules: [rule, rule] }, { knownCases })).toContain('rules[1].id is duplicated: edit-read-first')
+  })
+
+  it('rejects an expired rule and an overdue review', () => {
+    expect(validateRules(doc({ reviewAfter: '2000-01-01T00:00:00.000Z' }), { knownCases })).not.toEqual([])
+    expect(validateRules(doc({ expiresAt: '2000-01-01T00:00:00.000Z' }), { knownCases })).not.toEqual([])
   })
 
   it('rejects an ability verdict, no action and a missing check', () => {
