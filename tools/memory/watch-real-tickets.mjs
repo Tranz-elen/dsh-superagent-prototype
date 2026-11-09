@@ -8,7 +8,7 @@
  * Usage: node watch-real-tickets.mjs [--state-dir DIR] [--state FILE] [--out-dir DIR] [--no-analyze]
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, watchFile, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,7 +45,7 @@ function readCases() {
   return readFileSync(CASES, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
 }
 
-function main() {
+function check() {
   const cases = readCases()
   const real = realCases(cases)
   const latest = latestEndedAt(real)
@@ -56,13 +56,13 @@ function main() {
     mkdirSync(dirname(STATE), { recursive: true })
     writeFileSync(STATE, `${JSON.stringify({ lastEndedAt: latest ?? new Date().toISOString(), initializedAt: new Date().toISOString() }, null, 2)}\n`)
     console.log(`[watch] baseline recorded; real cases=${real.length}, lastEndedAt=${latest ?? 'none'}`)
-    process.exit(0)
+    return
   }
 
   const fresh = newRealCases(real, state.lastEndedAt).filter(c => !String(c.origin?.triggerId ?? '').startsWith('local-'))
   if (fresh.length === 0) {
     console.log(`[watch] no new real cases since ${state.lastEndedAt}; real cases=${real.length}`)
-    process.exit(0)
+    return
   }
 
   console.log(`[watch] ${fresh.length} new real case(s) since ${state.lastEndedAt}`)
@@ -73,6 +73,14 @@ function main() {
   }
   writeFileSync(STATE, `${JSON.stringify({ lastEndedAt: latest ?? state.lastEndedAt, analyzedAt: new Date().toISOString(), analyzed: fresh.length }, null, 2)}\n`)
   console.log(`[watch] analyzed ${fresh.length} case(s) -> ${OUT_DIR}`)
+}
+
+function main() {
+  check()
+  if (args.includes('--watch')) {
+    console.log(`[watch] watching ${CASES} every 5s; Ctrl-C or job_kill to stop`)
+    watchFile(CASES, { interval: 5000 }, () => check())
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main()
