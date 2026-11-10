@@ -27,7 +27,7 @@ const analyze = !args.includes('--no-analyze')
 
 /** Cases that are not local A/B fixtures. */
 export function realCases(cases) {
-  return cases.filter(c => !String(c.title ?? '').includes('A/B'))
+  return cases.filter(c => !String(c.title ?? '').includes('A/B') && c.source !== 'local')
 }
 
 /** The largest endedAt among the cases, or undefined when none carry one. */

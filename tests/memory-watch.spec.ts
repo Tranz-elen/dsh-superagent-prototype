@@ -5,6 +5,7 @@ const cases = [
   { id: 'real1', title: 'docs: real', endedAt: '2026-11-08T10:00:00Z' },
   { id: 'ab', title: 'docs: docs/ab-sample.md A/B ON 1', endedAt: '2026-11-09T12:00:00Z' },
   { id: 'real2', title: 'fix: real', endedAt: '2026-11-09T13:00:00Z' },
+  { id: 'local', title: 'docs: local', source: 'local', endedAt: '2026-11-09T14:00:00Z' },
 ]
 
 describe('real-ticket watch', () => {
