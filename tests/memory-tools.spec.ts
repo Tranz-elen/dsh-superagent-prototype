@@ -20,8 +20,9 @@ const run = (name: string, args: string[]): { status: number; output: string } =
   }
 }
 
-const caseOf = (id: string, intent: string, outcome: string) => ({
+const caseOf = (id: string, intent: string, outcome: string, promptRevision?: number) => ({
   id, title: `${intent}: ${id}`, request: '@bot do it', intent, areas: [], files: [], outcome, endReason: outcome,
+  ...(promptRevision === undefined ? {} : { promptRevision }),
   cost: { assignments: 1, retries: 0, reports: [], humanFollowUps: 0, handbacks: 0, requeued: false, attention: 0, answers: 0 },
   reports: [], sessionId: `worker-${id}`, createdAt: '2026-11-07T00:00:00Z',
 })
@@ -39,6 +40,21 @@ it('analyzes a fixture corpus into a report', () => {
   const report = readFileSync(out, 'utf8')
   expect(report).toContain('cases: **5**')
   expect(report).toContain('docs|merged')
+})
+
+it('shows the prompt revision in the cases table and trace digest, with a dash when absent', () => {
+  const cases = writeCases([caseOf('rev5', 'docs', 'merged', 5), caseOf('norev', 'docs', 'merged')])
+  const out = join(directory, 'report.md')
+  const result = run('analyze-cases.mjs', ['--cases', cases, '--out', out])
+  expect(result.status).toBe(0)
+  const report = readFileSync(out, 'utf8')
+  expect(report).toContain('| id | revision | intent | areas | outcome | decision | retries | human | title |')
+  expect(report).toContain('| rev5 | 5 | docs |')
+  expect(report).toContain('| norev | — | docs |')
+  expect(report).toContain('**rev5 — docs: rev5** (merged, revision 5)')
+  expect(report).toContain('**norev — docs: norev** (merged, revision —)')
+  for (const section of ['## 1. Cases', '## 2. Distribution', '## 3. Repetition', '## 3b. Decision-only records', '## 4. Data sufficiency'])
+    expect(report).toContain(section)
 })
 
 it('keeps the distill gate closed below the thresholds', () => {
