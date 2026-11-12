@@ -34,6 +34,8 @@ export interface CaseRecord {
   source?: string
   /** Set for a local workspace ticket: the registered workspace id. */
   workspace?: string
+  /** The prompt revision pinned for this ticket, when an experiment assigned one. */
+  promptRevision?: number
   kind?: string
   title: string
   request?: string
@@ -121,6 +123,7 @@ export function caseOf(input: {
     id: ticket.id,
     ...(repo ? { repo } : {}),
     ...(workspace ? { workspace } : {}),
+    ...(ticket.promptRevision !== undefined ? { promptRevision: ticket.promptRevision } : {}),
     ...(trigger?.source ? { source: trigger.source } : {}),
     ...(kind ? { kind } : {}),
     title: ticket.title,

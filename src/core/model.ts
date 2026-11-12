@@ -303,6 +303,8 @@ export interface Ticket {
   origin: { triggerId: string; triggerIds: string[] }
   /** What its Executor chose: its short name, directory and assignment text. */
   execution?: Execution
+  /** Prompt revision pinned at acceptance for an A/B cohort; absent means the current revision. */
+  promptRevision?: number
   /** The latest failed delivery of an Input to its worker, until a delivery succeeds. */
   delivery?: { error: string; at: string }
 }

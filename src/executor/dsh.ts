@@ -16,6 +16,7 @@ import { Later, type Effects } from '../app/effects.ts'
 import { executionRoot, type Variable } from '../app/execution-environment.ts'
 import type { Sessions } from '../app/sessions.ts'
 import { WorktreeNameSchema } from '../app/assessment.ts'
+import { assignedPromptRevision } from '../app/prompt-experiment.ts'
 import { resultRelay } from '../app/notices.ts'
 import type { HealthEntry } from '../infra/health.ts'
 import { cancelled, collectJob, killJobs, runningJobs, stopBackground, stopSubagents, until, untilQuiet } from './background.ts'
@@ -273,7 +274,12 @@ export class DshExecutor implements Executor {
   prepare(ticket: Ticket, outcome: Extract<AssessmentOutcome, { kind: 'accept' }>): Ticket {
     const trigger = this.host.store.triggers.get(ticket.origin.triggerId)
     const workspace = typeof trigger?.meta.workspace === 'string' ? trigger.meta.workspace : undefined
-    return { ...ticket, execution: ticketExecution(ticket, outcome, this.host.store.settings(), this.host.machine.stateDir, workspace) }
+    const settings = this.host.store.settings()
+    const requested = trigger?.meta.promptRevision
+    const experiment = settings.executor.promptExperiment
+    const promptRevision = typeof requested === 'number' ? requested : assignedPromptRevision(ticket.id, experiment)
+    return { ...ticket, ...(promptRevision !== undefined ? { promptRevision } : {}),
+      execution: ticketExecution(ticket, outcome, settings, this.host.machine.stateDir, workspace) }
   }
   /**
    * Runs the configured `executor.prepare` command for a new ticket workspace in its parent directory with the ticket's

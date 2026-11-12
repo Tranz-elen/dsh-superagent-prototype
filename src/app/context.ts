@@ -16,6 +16,7 @@ export const cliNotes = promptFile('cli')
 /** Default text for the team-editable prompt sections (communication, ticket scope, and PR delivery). */
 export const teamDefaults = {
   communication: promptFile('team/communication'), scope: promptFile('team/scope'), delivery: promptFile('team/delivery'),
+  playbook: '',
 }
 
 export const mainAdmissionPolicy = promptFile('admission')

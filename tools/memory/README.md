@@ -34,8 +34,12 @@ the two arms. Local-source tickets are excluded from the GitHub cohort by defaul
 ```sh
 pnpm memory:export      # store → <stateDir>/cases.jsonl   (offline catch-up / inspection)
 pnpm memory:decisions   # store → <stateDir>/decisions.jsonl
-pnpm memory:analyze     # cases (+ decisions) → report.md
-pnpm memory:distill     # gate + clusters + prompt.md → dist/
+pnpm memory:analyze     # cases (+ decisions) → report.md + failure-candidates.json
+pnpm memory:distill     # gate + clusters + prompt.md + failure-candidates.json → dist/
+node tools/memory/watch-real-tickets.mjs  # one-shot: new GitHub cases since the high-water mark → report
+node tools/memory/watch-real-tickets.mjs --watch  # watch cases.jsonl and analyze when a real case ends
+node tools/memory/check-rules.mjs        # validate reviewed rules against cases.jsonl
+node tools/memory/compare-prompt-revisions.mjs --on 5 --off 4  # GitHub cohort, excludes local test tickets by default
 ```
 
 Each command accepts `--cases`, `--decisions`, `--db`, `--out`, `--sessions`, and
@@ -44,6 +48,9 @@ Each command accepts `--cases`, `--decisions`, `--db`, `--out`, `--sessions`, an
 `export-cases.mjs` also reads each worker transcript to digest a case's trace. The
 session store is `<DSH_HOME>/sessions`; transcripts are a sequence of zstd frames,
 so the reader walks every frame instead of decompressing only the first.
+`analyze-cases.mjs` also normalizes repeated failures into candidates; it does not write
+a rule. A human supplies the cause, probe and disposition, cites at least three cases,
+and writes the reviewed line into the worker-only `playbook` prompt section.
 
 ## The gate
 
