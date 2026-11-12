@@ -20,20 +20,34 @@ const workspace = resolve(arg('workspace', ''))
 const id = arg('id', '')
 if (!workspace || !id) { console.error('usage: snapshot.mjs --workspace <dir> --id <ticket>'); process.exit(2) }
 const extra = args.flatMap((value, index) => value === '--exclude' ? [args[index + 1]] : []).filter(Boolean)
-const EXCLUDE = new Set(['.work', '.git', 'node_modules', '英语听力音频', ...extra])
+const EXCLUDE = new Set(['.work', '.git', 'node_modules', '.artifacts', '英语听力音频', ...extra])
+const sensitive = name => name === '.env' || (name.startsWith('.env.') && !name.endsWith('.example'))
+let ignoreText = ''
+try { ignoreText = await readFile(join(workspace, '.gitignore'), 'utf8') } catch { /* no ignore file */ }
+const ignoreRules = ignoreText.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'))
+const escapeRegex = value => value.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+const ignoreMatchers = ignoreRules.filter(rule => !rule.startsWith('!')).map(rule => {
+  const dirOnly = rule.endsWith('/')
+  const pattern = rule.replace(/\/+$/, '')
+  const hasSlash = pattern.includes('/')
+  const regex = new RegExp(`^${pattern.split('*').map(escapeRegex).join('.*')}${dirOnly ? '(/|$)' : '$'}`)
+  return (rel, name, isDir) => (!dirOnly || isDir) && (hasSlash ? regex.test(rel) : regex.test(name))
+})
+const ignored = (rel, name, isDir) => ignoreMatchers.some(match => match(rel, name, isDir))
 const MAX_BYTES = 5 * 1024 * 1024
 
 const files = {}
 const skipped = []
 async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (EXCLUDE.has(entry.name)) continue
     const path = join(directory, entry.name)
+    const rel = relative(workspace, path).split(sep).join('/')
+    if (EXCLUDE.has(entry.name) || sensitive(entry.name) || ignored(rel, entry.name, entry.isDirectory())) continue
     if (entry.isDirectory()) { await walk(path); continue }
     if (!entry.isFile()) continue
     const size = (await stat(path)).size
-    if (size > MAX_BYTES) { skipped.push(relative(workspace, path)); continue }
-    files[relative(workspace, path).split(sep).join('/')] = createHash('sha256').update(await readFile(path)).digest('hex')
+    if (size > MAX_BYTES) { skipped.push(rel); continue }
+    files[rel] = createHash('sha256').update(await readFile(path)).digest('hex')
   }
 }
 await walk(workspace)
