@@ -16,6 +16,19 @@ here — `distill.mjs` writes the extraction contract, and a person or agent run
 Defaults: `stateDir = $DSH_SUPERAGENT_STATE_DIR ?? ~/.dsh/state/superagent`;
 `DSH_HOME = $DSH_HOME ?? ~/.dsh`.
 
+### Prompt revision
+
+`cases.jsonl` may carry a `promptRevision` field: the prompt version the ticket's
+worker ran under.
+
+- `executor.promptExperiment` (`enabled`, `revisions: [on, off]`) assigns one of the
+  two revisions deterministically by ticket id;
+- a local request may pass an explicit `promptRevision`, which wins.
+
+`compare-prompt-revisions.mjs --on 5 --off 4` groups cases by that field and compares
+the two arms. Local-source tickets are excluded from the GitHub cohort by default;
+`--include-local` adds them.
+
 ## Commands
 
 ```sh
