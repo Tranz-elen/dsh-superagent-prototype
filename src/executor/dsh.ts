@@ -118,20 +118,41 @@ export function ticketExecution(ticket: Ticket, outcome: Extract<AssessmentOutco
     + 'Any status change (已掌握/巩固中) must cite the raw score code and the page sha256 from snapshot.json; if it cannot, write 待核对 instead of changing the status.'
   return { name, directory, assignment: `${assignment}${protocol}`, workspace: workspace.id, workspacePath: workspace.path }
 }
+/** Minimal gitignore matching for snapshot exclusions: comments, directory entries and `*` are supported. */
+function gitignoreMatchers(text: string): (rel: string, name: string, isDir: boolean) => boolean {
+  const escape = (value: string) => value.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  const rules = text.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'))
+  const matchers: ((rel: string, name: string, isDir: boolean) => boolean)[] = []
+  for (const rule of rules) {
+    if (rule.startsWith('!')) continue
+    const dirOnly = rule.endsWith('/')
+    const pattern = rule.replace(/\/+$/, '')
+    if (!pattern) continue
+    const hasSlash = pattern.includes('/')
+    const regex = new RegExp(`^${pattern.split('*').map(escape).join('.*')}${dirOnly ? '(/|$)' : '$'}`)
+    matchers.push((rel, name, isDir) => (!dirOnly || isDir) && (hasSlash ? regex.test(rel) : regex.test(name)))
+  }
+  return (rel, name, isDir) => matchers.some(match => match(rel, name, isDir))
+}
 /** Copies a local workspace to the ticket's snapshot directory and records each file's sha256 in snapshot.json. */
 export async function snapshotWorkspace(source: string, directory: string): Promise<void> {
-  const exclude = new Set(['.work', '.git', 'node_modules'])
+  const exclude = new Set(['.work', '.git', 'node_modules', '.artifacts'])
   const maxBytes = 5 * 1024 * 1024
+  let ignoreText = ''
+  try { ignoreText = await readFile(join(source, '.gitignore'), 'utf8') } catch { /* no ignore file */ }
+  const ignore = gitignoreMatchers(ignoreText)
+  const sensitive = (name: string) => name === '.env' || (name.startsWith('.env.') && !name.endsWith('.example'))
   const files: Record<string, string> = {}
   const skipped: string[] = []
   const walk = async (path: string): Promise<void> => {
     for (const entry of await readdir(path, { withFileTypes: true })) {
-      if (exclude.has(entry.name)) continue
       const child = join(path, entry.name)
+      const rel = relative(source, child).split(sep).join('/')
+      if (exclude.has(entry.name) || sensitive(entry.name) || ignore(rel, entry.name, entry.isDirectory())) continue
       if (entry.isDirectory()) { await walk(child); continue }
       if (!entry.isFile()) continue
-      if ((await stat(child)).size > maxBytes) { skipped.push(relative(source, child)); continue }
-      files[relative(source, child).split(sep).join('/')] = createHash('sha256').update(await readFile(child)).digest('hex')
+      if ((await stat(child)).size > maxBytes) { skipped.push(rel); continue }
+      files[rel] = createHash('sha256').update(await readFile(child)).digest('hex')
     }
   }
   await walk(source)
