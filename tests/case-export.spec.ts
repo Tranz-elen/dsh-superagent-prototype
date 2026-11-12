@@ -22,7 +22,7 @@ const ticket: Ticket = { id: 'ticket-1', title: '修正 README 第 1 节的错�
     basis: { source: 'github', scope: { kind: 'issue' }, row: 'issues', sender: 'alice', via: 'addressed', addressed: 'mention' } },
   channels: [], ended: { at: endedAt, by: 'human', outcome: 'stopped' },
   assignments: [{ id: 'assignment-1', state: 'ended', createdAt: at, report: { state: 'progress', summary: 'reading the file', at } }],
-  inputs: [], undelivered: [], createdAt: at, updatedAt: endedAt, origin: { triggerId: 'trigger-1', triggerIds: ['trigger-1'] } }
+  inputs: [], undelivered: [], createdAt: at, updatedAt: endedAt, origin: { triggerId: 'trigger-1', triggerIds: ['trigger-1'] }, promptRevision: 5 }
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'orchestrator-cases-'))
@@ -40,7 +40,7 @@ it('writes one case per ended ticket, with its decision, trigger and cost', asyn
   expect(lines).toHaveLength(1)
   const record = JSON.parse(lines[0]!)
   expect(record).toMatchObject({
-    id: 'ticket-1', title: '修正 README 第 1 节的错别字', intent: 'docs', outcome: 'stopped', endedBy: 'human',
+    id: 'ticket-1', title: '修正 README 第 1 节的错别字', intent: 'docs', outcome: 'stopped', endedBy: 'human', promptRevision: 5,
     repo: 'acme/repo', requester: 'alice', sessionId: 'worker-ticket-1',
     decision: { kind: 'accept', reasons: ['explicitRouted'], strength: 'explicit' },
     mandate: { scope: '修正 README 错别字', via: 'addressed' },

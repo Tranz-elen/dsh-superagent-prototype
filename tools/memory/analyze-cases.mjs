@@ -7,10 +7,11 @@
  *
  * Usage: node analyze-cases.mjs [--cases cases.jsonl] [--out report.md]
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { zstdDecompressSync } from 'node:zlib'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { digestCase } from './session-digest.mjs'
+import { buildFailureCandidates, failureCandidatesDocument } from './failure-candidates.mjs'
 
 const args = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -21,6 +22,7 @@ const STATE = process.env.DSH_SUPERAGENT_STATE_DIR ?? join(homedir(), '.dsh', 's
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const CASES = arg('cases', join(STATE, 'cases.jsonl'))
 const OUT = arg('out', 'report.md')
+const FAILURES = arg('failures', join(dirname(OUT), 'failure-candidates.json'))
 const SESSIONS = arg('sessions', join(DSH_HOME, 'sessions'))
 
 function intentOf(title, text, files) {
@@ -46,79 +48,7 @@ function intentOf(title, text, files) {
 
 const cases = readFileSync(CASES, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
 
-/** Resolves a worker transcript: an explicit path from the offline exporter, or the id the in-process exporter records. */
-function sessionPath(c) {
-  if (c.session) return c.session
-  if (!c.sessionId) return undefined
-  try {
-    for (const dir of readdirSync(join(SESSIONS))) {
-      const candidate = join(SESSIONS, dir, c.sessionId)
-      if (!existsSync(candidate)) continue
-      const file = readdirSync(candidate).find(name => name.startsWith('session.') && name.endsWith('.zstd'))
-      if (file) return join(candidate, file)
-    }
-  } catch { /* no session store */ }
-  return undefined
-}
-
-const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
-/**
- * Reads a session transcript. The store appends one zstd frame per event batch, so a
- * whole-file decompress returns only the first frame; decompress from every frame
- * magic and keep the well-formed, non-duplicate JSON lines.
- */
-function readSession(path) {
-  if (!path) return []
-  let buf
-  try { buf = readFileSync(path) } catch { return [] }
-  const events = [], seen = new Set()
-  for (let i = 0; (i = buf.indexOf(MAGIC, i)) !== -1; i += 4) {
-    try {
-      const text = zstdDecompressSync(buf.subarray(i)).toString('utf8')
-      for (const line of text.split('\n')) {
-        if (!line.trim() || seen.has(line)) continue
-        seen.add(line)
-        try { events.push(JSON.parse(line)) } catch { /* not a JSON event */ }
-      }
-    } catch { /* false-positive magic */ }
-  }
-  return events.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-}
-
-const textOf = message => (message?.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
-
-function digest(events) {
-  const steps = events.filter(e => e.type === 'step/start').length
-  const calls = new Map()
-  const results = new Map()
-  for (const e of events) {
-    if (e.type === 'tool/call') {
-      let parsed = {}
-      try { parsed = JSON.parse(e.data.arguments ?? '{}') } catch { /* keep {} */ }
-      calls.set(e.data.callId, { name: e.data.name, args: parsed })
-    } else if (e.type === 'tool/result') {
-      results.set(e.data.toolCallId ?? e.data.message?.toolCallId, textOf(e.data.message))
-    }
-  }
-  const tools = {}
-  const bash = []
-  const failures = []
-  const edits = new Set()
-  const reads = new Set()
-  for (const [callId, call] of calls) {
-    tools[call.name] = (tools[call.name] ?? 0) + 1
-    const text = results.get(callId) ?? ''
-    const exit = /\[exit code: (\d+)\]/.exec(text)
-    const failed = (exit && Number(exit[1]) !== 0) || /^(Error|error):/.test(text.trim())
-    if (call.name === 'bash') bash.push({ command: (call.args.command ?? '').trim().split('\n')[0], exit: exit ? Number(exit[1]) : 0 })
-    if (call.name === 'write' || call.name === 'edit') edits.add(call.args.file_path)
-    if (call.name === 'read' || call.name === 'grep' || call.name === 'glob') reads.add(call.args.file_path ?? call.args.path ?? call.args.pattern)
-    if (failed) failures.push({ tool: call.name, detail: (exit ? `exit ${exit[1]}` : 'error') + ' :: ' + text.slice(0, 160).replace(/\s+/g, ' ') })
-  }
-  return { steps, tools, bash, edits: [...edits], reads: [...reads].filter(Boolean), failures }
-}
-
-for (const c of cases) { c.intent = intentOf(c.title, c.request ?? '', c.files ?? []); c.trace = digest(readSession(sessionPath(c))) }
+for (const c of cases) { c.intent = intentOf(c.title, c.request ?? '', c.files ?? []); c.trace = digestCase(c, SESSIONS) }
 
 // ---------------------------------------------------------------- aggregation
 const count = (list, pick) => list.reduce((m, x) => (m[pick(x)] = (m[pick(x)] ?? 0) + 1, m), {})
@@ -129,9 +59,12 @@ const allBash = cases.flatMap(c => c.trace.bash)
 const failedBash = allBash.filter(b => b.exit !== 0)
 const bashCount = count(allBash, b => b.command)
 const repeatedBash = Object.entries(bashCount).filter(([, n]) => n >= 2)
-const allFailures = cases.flatMap(c => c.trace.failures)
-const failureCount = count(allFailures, f => f.detail.slice(0, 80))
-const repeatedFailures = Object.entries(failureCount).filter(([, n]) => n >= 2)
+const failureResult = buildFailureCandidates(cases)
+const repeatedFailures = failureResult.candidates.map(candidate => [candidate.signature, candidate.count])
+const quarantinedFailures = failureResult.quarantined
+const failureEvidence = new Map(failureResult.candidates.map(candidate => [candidate.signature, {
+  cases: new Set(candidate.cases), outcomes: new Set(candidate.outcomes), symptom: candidate.symptom,
+}]))
 const reasonCount = count(cases.flatMap(c => c.decision?.reasons ?? []), r => r)
 const reportStates = count(cases.flatMap(c => c.reports), r => r.state)
 
@@ -166,9 +99,19 @@ lines.push(`- retries: ${cases.reduce((n, c) => n + c.cost.retries, 0)}, attenti
 lines.push('## 3. Repetition (the only thing rules can come from)', '')
 lines.push(`- signatures (intent|outcome) with n>=2: ${repeatedSignatures.length ? JSON.stringify(repeatedSignatures) : 'none'}`)
 lines.push(`- bash commands run more than once: ${repeatedBash.length ? JSON.stringify(repeatedBash) : 'none'}`)
-lines.push(`- failed commands seen more than once: ${repeatedFailures.length ? JSON.stringify(repeatedFailures) : 'none'}`)
+lines.push(`- repeated failure signatures: ${repeatedFailures.length ? JSON.stringify(repeatedFailures) : 'none'}`)
+lines.push(`- quarantined failures with an ability verdict: ${quarantinedFailures}`)
 lines.push(`- outcome spread: ${outcomeSpread} kinds`, '')
-lines.push('### Trace digests', '')
+lines.push('### Failure lesson candidates (review before use)', '')
+if (repeatedFailures.length === 0) lines.push('- none; a single failure is not a lesson.', '')
+for (const [signature, n] of repeatedFailures) {
+  const evidence = failureEvidence.get(signature)
+  const candidate = failureResult.candidates.find(item => item.signature === signature)
+  lines.push(`- \`${signature}\` ×${n}; scope=${candidate?.suggestedScope ?? 'worker'}; cases: ${[...evidence.cases].join(', ')}; outcomes: ${[...evidence.outcomes].join(', ')}`)
+  lines.push(`  - symptom: ${evidence.symptom}`)
+  lines.push('  - needs a human-written possible cause, a cheapest falsifying probe, and an action; this is not a rule yet.')
+}
+lines.push('', '### Trace digests', '')
 for (const c of cases) {
   lines.push(`**${c.id.slice(0, 8)} — ${c.title}** (${c.outcome}, revision ${revisionOf(c)})`, '')
   lines.push(`- steps ${c.trace.steps}, tools ${JSON.stringify(c.trace.tools)}`)
@@ -197,6 +140,8 @@ lines.push('')
 lines.push(`**verdict: ${sufficient ? 'enough for a first distillation pass' : 'NOT enough — do not distill rules yet'}**`)
 lines.push('')
 writeFileSync(OUT, lines.join('\n') + '\n')
+writeFileSync(FAILURES, `${JSON.stringify(failureCandidatesDocument(failureResult, { cases: cases.length }), null, 2)}\n`)
 console.log(`wrote ${OUT}`)
 console.log(`cases=${cases.length} repeatedSignatures=${repeatedSignatures.length} repeatedFailures=${repeatedFailures.length} sufficient=${sufficient}`)
+console.log(`failure candidates: ${FAILURES} (${failureResult.candidates.length})`)
 for (const c of cases) console.log(`- ${c.id.slice(0, 8)} ${c.outcome} steps=${c.trace.steps} bash=${c.trace.bash.length} failedBash=${c.trace.bash.filter(b => b.exit !== 0).length} tools=${Object.keys(c.trace.tools).join(',')}`)

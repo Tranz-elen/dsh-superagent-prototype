@@ -2,10 +2,12 @@
 
 [中文](DESIGN.zh.md) | English
 
-Status: design only. Nothing here is injected yet. The 20-case corpus produced three
-conventional rules (docs/test/refactor); they are not worth injecting on their own, so
-this document specifies how a reviewed playbook would enter a Session once the corpus
-has outcome-backed rules.
+Status: the offline pipeline produces repeated-failure candidates and the worker
+playbook section exists. The first local 5+5 A/B (2026-11-09) was a weak test (it told
+the worker to read first); a corrected direct-edit 5+5 run improved mean steps 15.0 -> 8.0
+and mean bash 10.8 -> 3.8 without worsening failed bash. The playbook is ON at prompt
+revision 5 for now; this is still a local-workspace test, not a real GitHub cohort. See
+`AB-RESULT-2026-11-09.md`.
 
 ## Goal
 
@@ -30,6 +32,23 @@ so it must be reviewed like code, and the prompt revision history is the review 
 Why not a new file-injection mechanism: it would duplicate versioning, rollback and
 panel editing that already exist.
 
+## Failure candidates
+
+`analyze-cases.mjs` turns every failed tool result into a normalized signature
+(tool + error class + stable key identifiers; paths, timestamps and ids stripped).
+Repeated signatures become **failure candidates** in `report.md`, with their case ids,
+outcomes and a symptom. This is evidence, not a rule:
+
+- the candidate has no possible cause, probe or disposition yet;
+- a human supplies those, cites the cases, and writes one line into the `playbook`
+  section only after checking at least three cases;
+- a signature that only makes an ability verdict (e.g. “the tool is broken”) is
+  quarantined and never becomes a candidate;
+- a deliberate `exit 1` and a DNS failure must not share a signature.
+
+The prompt section is worker-only and empty by default. The orchestrator does not read
+it; the playbook cannot change Policy, a Mandate or tool limits.
+
 ## Content rules
 
 - One rule per line, each with a scope (`docs`, `test`, `refactor`, `bugfix`, `ci`) and a
@@ -45,8 +64,9 @@ panel editing that already exist.
 ## Rollout
 
 1. Wait until the corpus has 30–40 cases and each candidate has `n >= 3`.
-2. Run `pnpm memory:distill`; review `dist/rules.json`; paste only high-confidence rules
-   into the `playbook` team section; save a prompt revision.
+2. Run `pnpm memory:analyze`; review the failure candidates in `report.md`; run
+   `pnpm memory:distill`; paste only high-confidence rules into the `playbook` team
+   section; save a prompt revision.
 3. **A/B**: 5 tickets with the playbook revision, 5 without. Alternate revisions per
    ticket; keep the issue types matched (same intent and roughly same size).
 4. Compare per ticket, from the cases and the worker traces:
