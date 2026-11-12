@@ -144,14 +144,18 @@ const sufficient = cases.length >= NEED.cases && repeatedSignatures.some(([, n])
 const table = (rows, head) => ['| ' + head.join(' | ') + ' |', '|' + head.map(() => ' --- ').join('|') + '|',
   ...rows.map(r => '| ' + r.join(' | ') + ' |')].join('\n')
 
+/** The prompt revision a case ran under; older exports predate the field. */
+const revisionOf = c => c.promptRevision ?? '—'
+
 const lines = []
 lines.push('# Phase 0 — superagent case corpus report', '')
 lines.push(`- generated: ${new Date().toISOString()}`)
 lines.push(`- cases: **${cases.length}**`)
 lines.push(`- corpus: \`${CASES}\``, '')
 lines.push('## 1. Cases', '')
-lines.push(table(cases.map(c => [c.id.slice(0, 8), c.intent, c.areas.join(',') || '-', c.outcome, c.decision?.kind ?? '-',
-  String(c.cost.retries), String(c.cost.humanFollowUps), c.title]), ['id', 'intent', 'areas', 'outcome', 'decision', 'retries', 'human', 'title']), '')
+lines.push(table(cases.map(c => [c.id.slice(0, 8), String(revisionOf(c)), c.intent, c.areas.join(',') || '-', c.outcome,
+  c.decision?.kind ?? '-', String(c.cost.retries), String(c.cost.humanFollowUps), c.title]),
+['id', 'revision', 'intent', 'areas', 'outcome', 'decision', 'retries', 'human', 'title']), '')
 lines.push('## 2. Distribution', '')
 lines.push(`- outcomes: ${JSON.stringify(count(cases, c => c.outcome))}`)
 lines.push(`- intents: ${JSON.stringify(count(cases, c => c.intent))}`)
@@ -166,7 +170,7 @@ lines.push(`- failed commands seen more than once: ${repeatedFailures.length ? J
 lines.push(`- outcome spread: ${outcomeSpread} kinds`, '')
 lines.push('### Trace digests', '')
 for (const c of cases) {
-  lines.push(`**${c.id.slice(0, 8)} — ${c.title}** (${c.outcome})`, '')
+  lines.push(`**${c.id.slice(0, 8)} — ${c.title}** (${c.outcome}, revision ${revisionOf(c)})`, '')
   lines.push(`- steps ${c.trace.steps}, tools ${JSON.stringify(c.trace.tools)}`)
   lines.push(`- bash ${c.trace.bash.length} (failed ${c.trace.bash.filter(b => b.exit !== 0).length})${c.trace.bash.length ? ': ' + c.trace.bash.slice(0, 6).map(b => '`' + b.command.slice(0, 60) + '`' + (b.exit ? ` [${b.exit}]` : '')).join(', ') : ''}`)
   lines.push(`- edits ${c.trace.edits.join(', ') || '-'}`)
