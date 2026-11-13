@@ -2,7 +2,7 @@
 
 Date: 2026-11-09
 
-## Current state
+## Historical state (2026-11-09)
 
 - Worker prompt revision 5 (ON) contains the reviewed `edit: cannot modify` rule.
 - Revisions 2 and 4 are OFF; revisions 0 and 2/4 are empty playbooks.
@@ -40,9 +40,9 @@ Keep revision 5 while the real tickets do not regress. If a real ticket shows a 
 - Live state: `/root/.dsh/state/superagent/orchestrator.sqlite`
 - Real cases: `/root/.dsh/state/superagent/cases.jsonl`
 
-## Experiment live
+## Experiment (historical)
 
-- `executor.promptExperiment` is enabled with revisions `[5, 4]`; assignment is deterministic by ticket id.
+- `executor.promptExperiment` **was** enabled with revisions `[5, 4]`; it is now disabled.
 - Every new ticket's `promptRevision` is exported in `cases.jsonl`.
 - Compare groups with:
 
@@ -51,3 +51,28 @@ node tools/memory/compare-prompt-revisions.mjs --on 5 --off 4 --since 2026-11-09
 ```
 
 The report is descriptive; it marks groups under 5 cases as insufficient and does not claim causality.
+
+
+## Final wrap-up (2026-11-12)
+
+The GitHub batch cohort finished and the playbook was rolled back.
+
+| Metric | ON (revision 5) | OFF (revision 4) |
+|---|---:|---:|
+| valid merged cases | 21 | 17 |
+| mean steps | 35.1 | 34.1 |
+| mean bash | 40.6 | 35.9 |
+| failed bash | 49 | 27 |
+| edit errors | 0 | 2 |
+
+Decision:
+
+- revision 5 did not outperform revision 4; ON had materially more failed bash;
+- current prompt is revision 6, restored from revision 4 (empty playbook);
+- `executor.promptExperiment` is disabled; no new ticket is assigned ON/OFF;
+- revision 5 and `rules.json` remain as history for audit;
+- the `edit-read-first` rule is not suitable as a playbook: the tool error already tells the worker to read the file and retry, and the measured cohort did not improve;
+- the watcher and recurring reminder are stopped; no open tickets;
+- snapshot `.gitignore` handling is separate Executor infrastructure work (PR #150), not a memory rule.
+
+Future work should start from a failure that the tool does not already self-correct, or from a tool/process change rather than another prompt variant. Re-running the same docs cohort is not useful evidence.
